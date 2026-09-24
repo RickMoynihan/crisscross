@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Automerge Markdown</title>
+  <style>
+    body { font-family: sans-serif; max-width: 80rem; margin: 1rem auto; padding: 0 1rem; }
+    main { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    #users span { font-weight: bold; margin-right: 1em; }
+
+    /* The editor is a transparent textarea layered over a <pre> holding the
+       same text coloured by author. Both must share exact box and font metrics. */
+    .editor { position: relative; }
+    .editor textarea, .editor pre {
+      box-sizing: border-box; width: 100%; height: 70vh; margin: 0; padding: 0.5rem;
+      border: 1px solid #888; font: 1rem/1.5 ui-monospace, Menlo, Consolas, monospace;
+      white-space: pre-wrap; overflow-wrap: break-word; overflow-y: scroll;
+    }
+    .editor pre { position: absolute; inset: 0; height: auto; border-color: transparent; pointer-events: none; }
+    .editor textarea { position: relative; display: block; background: transparent; color: transparent; caret-color: black; resize: vertical; }
+    #preview { border: 1px solid #ddd; padding: 0 1rem; overflow: auto; height: 70vh; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <h1>Automerge Markdown</h1>
+
+  <form id="login">
+    <label>Username <input id="name" required autofocus autocomplete="username"></label>
+    <button>Start</button>
+  </form>
+
+  <div id="app" hidden>
+    <p>You are <b id="me"></b>. Users: <span id="users"></span></p>
+    <p><small id="status"></small> <a href="./">New document</a></p>
+    <main>
+      <div class="editor">
+        <pre id="backdrop" aria-hidden="true"></pre>
+        <textarea id="text" spellcheck="false" aria-label="Markdown"></textarea>
+      </div>
+      <div id="preview"></div>
+    </main>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
