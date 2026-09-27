@@ -105,16 +105,15 @@ Then ask, e.g.: "Summarise the wiki at ${location.href}"`
   setTimeout(() => (e.target.textContent = "Copy link for an AI agent"), 2000)
 }
 
-// URLs are #<index url> for the document list, #<index url>/<doc url> for a
-// document's main branch, and #<index url>/<doc url>/<branch name> for a
-// named branch of that document.
+// URLs are #<index url> for a document list -- its own URL if it's a branch
+// -- and #<index url>/<doc url> for a document within it.
 async function route() {
   const id = ++routeId
   leaveView()
   leaveView = () => {}
   show(null)
 
-  const [indexUrl, docUrl, branchSeg] = location.hash.slice(1).split("/")
+  const [indexUrl, docUrl] = location.hash.slice(1).split("/")
   if (!isValidAutomergeUrl(indexUrl)) {
     location.replace(`#${repo.create(Index.newIndex()).url}`)
     return
@@ -132,16 +131,9 @@ async function route() {
 
   if (docUrl) {
     if (!isValidAutomergeUrl(docUrl)) return
-    const branchName = branchSeg ? decodeURIComponent(branchSeg) : null
-    const branch = branchName ? Index.branches(index.doc(), docUrl).find((b) => b.name === branchName) : null
-    if (branchName && !branch) {
-      message.textContent = `Branch not found: "${branchName}".`
-      message.hidden = false
-      return
-    }
-    const doc = await load(branch ? branch.url : docUrl)
+    const doc = await load(docUrl)
     if (!doc || id !== routeId) return
-    leaveView = showDoc(index, docUrl, branchName, doc)
+    leaveView = showDoc(index, docUrl, doc)
   } else {
     leaveView = showIndex(index)
   }
@@ -236,14 +228,32 @@ function showIndex(index) {
     $("new-title").value = ""
   }
 
-  // Branching the index deep-clones it and every document it lists, so the
-  // branch is a fully independent copy until it's merged back (see
-  // createRootBranch). `root` holds the flat list of sibling branches: it's
-  // `index` itself unless this index is a branch, in which case it's loaded
-  // asynchronously below.
+  document.title = "Automerge Markdown"
+  render()
+  show(indexView)
+  const stopItems = listen(index, render)
+  const stopBranch = setupBranchNav(index, null, null)
+  return () => (stopItems(), stopBranch())
+}
+
+// The branch selector and merge controls are shared, as a single control, by
+// the list view and every document view: picking a branch moves your whole
+// view there -- the same document, if it has a counterpart on that branch,
+// or that branch's list otherwise -- and merging always merges the whole
+// branch (the list itself and every document in it), regardless of which
+// page you triggered it from. `docUrl`/`docHandle` are the document
+// currently open in `index`, or null on the list view.
+function setupBranchNav(index, docUrl, docHandle) {
   let left = false
   let root = index
   let stopRoot = () => {}
+  const family = docUrl ? Index.familyOf(index.doc(), docUrl) : null
+
+  const goTo = (targetUrl, targetDocUrl) => (location.hash = `#${targetUrl}${targetDocUrl ? "/" + targetDocUrl : ""}`)
+
+  // Follow the current document to its counterpart on `targetUrl`'s branch,
+  // falling back to that branch's list if it doesn't have one.
+  const follow = (targetUrl, targetDoc) => goTo(targetUrl, family ? Index.findByFamily(targetDoc, family) : null)
 
   // A branch has something to merge once either the index itself, or any
   // document it forked, has changed since the branch was created.
@@ -257,64 +267,64 @@ function showIndex(index) {
     return false
   }
 
-  const renderBranches = () => {
-    const family = Index.rootBranches(root.doc())
+  const render = () => {
+    const siblings = Index.rootBranches(root.doc())
     const isRoot = root.url === index.url
-    $("index-branch-select").replaceChildren(
+    $("branch-select").replaceChildren(
       el("option", { value: root.url, selected: isRoot }, "main"),
-      ...family.map((b) => el("option", { value: b.url, selected: b.url === index.url }, b.name)),
+      ...siblings.map((b) => el("option", { value: b.url, selected: b.url === index.url }, b.name)),
       el("option", { value: "__new__" }, "+ New branch…"),
     )
-    $("index-branch-note").hidden = isRoot
+    $("branch-note").hidden = isRoot
+    if (!isRoot) $("branch-name").textContent = siblings.find((b) => b.url === index.url)?.name ?? ""
 
-    const mine = !isRoot && family.find((b) => b.url === index.url)
+    const mine = !isRoot && siblings.find((b) => b.url === index.url)
     if (!mine) {
-      $("index-merge-controls").hidden = true
+      $("merge-controls").hidden = true
       return
     }
     checkDiverged(mine).then((diverged) => {
       if (left) return
-      $("index-merge-controls").hidden = !diverged
+      $("merge-controls").hidden = !diverged
       if (diverged) {
-        $("index-merge-target").replaceChildren(
+        $("merge-target").replaceChildren(
           el("option", { value: root.url }, "main"),
-          ...family.filter((b) => b.url !== index.url).map((b) => el("option", { value: b.url }, b.name)),
+          ...siblings.filter((b) => b.url !== index.url).map((b) => el("option", { value: b.url }, b.name)),
         )
       }
     })
   }
 
-  $("index-branch-select").onchange = async (e) => {
+  $("branch-select").onchange = async (e) => {
     const value = e.target.value
-    if (value !== "__new__") {
-      location.hash = `#${value}`
+    if (value === "__new__") {
+      render() // reset the select back to the current branch
+      const name = (prompt("New branch name") ?? "").trim()
+      if (!name) return
+      if (name === "main" || Index.rootBranches(root.doc()).some((b) => b.name === name)) {
+        alert(`A branch called "${name}" already exists.`)
+        return
+      }
+      const newIndex = await createRootBranch(root, index, name)
+      follow(newIndex.url, newIndex.doc())
       return
     }
-    renderBranches() // reset the select back to the current branch
-    const name = (prompt("New branch name") ?? "").trim()
-    if (!name) return
-    if (name === "main" || Index.rootBranches(root.doc()).some((b) => b.name === name)) {
-      alert(`A branch called "${name}" already exists.`)
-      return
-    }
-    await createRootBranch(root, index, name)
+    if (value === index.url) return
+    const target = await repo.find(value).catch(() => null)
+    if (target) follow(value, target.doc())
   }
 
-  $("index-merge-btn").onclick = async () => {
-    const targetUrl = $("index-merge-target").value
-    const targetHandle = await repo.find(targetUrl)
-    await mergeRootBranch(targetHandle, index)
-    location.hash = `#${targetUrl}`
+  $("merge-btn").onclick = async () => {
+    const targetUrl = $("merge-target").value
+    const target = await repo.find(targetUrl).catch(() => null)
+    if (!target) return
+    await mergeRootBranch(target, index)
+    follow(targetUrl, target.doc())
   }
 
-  document.title = "Automerge Markdown"
   render()
-  renderBranches()
-  show(indexView)
-  const stopItems = listen(index, () => {
-    render()
-    renderBranches()
-  })
+  const stopIndex = listen(index, render)
+  const stopDoc = docHandle ? listen(docHandle, render) : () => {}
 
   ;(async () => {
     const branchOf = index.doc().branchOf
@@ -322,22 +332,23 @@ function showIndex(index) {
     const r = await repo.find(branchOf.root).catch(() => null)
     if (left || !r) return
     root = r
-    stopRoot = listen(root, renderBranches)
-    renderBranches()
+    stopRoot = listen(root, render)
+    render()
   })()
 
   return () => {
     left = true
-    stopItems()
+    stopIndex()
+    stopDoc()
     stopRoot()
   }
 }
 
 // Deep-clone `source` (an index, possibly itself a branch) and every
 // document it lists into a brand new named branch, registered on `root`'s
-// flat sibling list, then navigate to it. Each cloned document records
-// `forkedFrom` and its own fork heads, so a later merge knows where its
-// changes belong and the UI can tell whether it has diverged.
+// flat sibling list. Each cloned document records `forkedFrom` and its own
+// fork heads, so a later merge knows where its changes belong and the UI can
+// tell whether it has diverged.
 async function createRootBranch(root, source, name) {
   const newIndex = repo.clone(source)
 
@@ -356,7 +367,7 @@ async function createRootBranch(root, source, name) {
   })
   const forkHeads = newIndex.heads()
   root.change((d) => Index.addRootBranch(d, name, newIndex.url, forkHeads))
-  location.hash = `#${newIndex.url}`
+  return newIndex
 }
 
 // Merge every document a branch index lists back into its counterpart in
@@ -383,21 +394,10 @@ async function mergeRootBranch(target, branch) {
 
 // ---- Markdown document ----
 
-// `docUrl` identifies the document's family (its main branch, and the key
-// its title/branches are tracked under in the index). `branchName` is null
-// for the main branch, or the name of the branch `handle` holds otherwise.
-function showDoc(index, docUrl, branchName, handle) {
+function showDoc(index, docUrl, handle) {
   join(handle, me)
   const path = Index.titlePath(docUrl)
   $("back").href = `#${index.url}`
-  const branchHash = (name) => `#${index.url}/${docUrl}${name ? "/" + encodeURIComponent(name) : ""}`
-
-  // This document's own branches (below) are separate from whether the list
-  // it's in is itself a branch, so surface that too, or it looks like it was
-  // silently dropped when following a link into a document.
-  const listBranchOf = index.doc().branchOf
-  $("doc-list-branch-note").hidden = !listBranchOf
-  if (listBranchOf) $("doc-list-branch-name").textContent = listBranchOf.name
 
   const renderTitle = (doc, before) => {
     updateField(titleInput, path, doc, before)
@@ -407,70 +407,19 @@ function showDoc(index, docUrl, branchName, handle) {
   }
   titleInput.oninput = () => index.change((d) => Index.rename(d, docUrl, titleInput.value))
 
-  // The branch picker (existing branches + "new branch") and, once the
-  // current branch has diverged from its fork point, the merge controls.
-  const renderBranches = (indexDoc) => {
-    const family = Index.branches(indexDoc, docUrl)
-    $("branch-select").replaceChildren(
-      el("option", { value: "", selected: !branchName }, "main"),
-      ...family.map((b) => el("option", { value: b.name, selected: b.name === branchName }, b.name)),
-      el("option", { value: "__new__" }, "+ New branch…"),
-    )
-
-    const fork = branchName && family.find((b) => b.name === branchName)
-    const diverged = !!fork && !sameHeads(handle.heads(), fork.forkHeads)
-    $("merge-controls").hidden = !diverged
-    if (diverged) {
-      $("merge-target").replaceChildren(
-        el("option", { value: "" }, "main"),
-        ...family.filter((b) => b.name !== branchName).map((b) => el("option", { value: b.name }, b.name)),
-      )
-    }
-  }
-
-  $("branch-select").onchange = (e) => {
-    const value = e.target.value
-    if (value !== "__new__") {
-      location.hash = branchHash(value || null)
-      return
-    }
-    renderBranches(index.doc()) // reset the select back to the current branch
-    const name = (prompt("New branch name") ?? "").trim()
-    if (!name) return
-    if (name === "main" || Index.branches(index.doc(), docUrl).some((b) => b.name === name)) {
-      alert(`A branch called "${name}" already exists.`)
-      return
-    }
-    const branchHandle = repo.clone(handle)
-    index.change((d) => Index.addBranch(d, docUrl, name, branchHandle.url, branchHandle.heads()))
-    location.hash = branchHash(name)
-  }
-
-  $("merge-btn").onclick = async () => {
-    const targetName = $("merge-target").value
-    const target = targetName ? Index.branches(index.doc(), docUrl).find((b) => b.name === targetName) : null
-    const targetHandle = await repo.find(target ? target.url : docUrl)
-    targetHandle.merge(handle) // applies the branch's changes following normal CRDT merge rules
-    location.hash = branchHash(targetName || null)
-  }
-
   textarea.oninput = () => applyEdit(handle, me, textarea.value)
   textarea.value = handle.doc().text ?? ""
   renderTitle(index.doc())
   renderDoc(handle.doc())
-  renderBranches(index.doc())
   show(docView)
 
   const stopDoc = listen(handle, ({ doc, patchInfo }) => {
     updateField(textarea, TEXT, doc, patchInfo.before)
     renderDoc(doc)
-    renderBranches(index.doc()) // divergence from the fork point may have changed
   })
-  const stopIndex = listen(index, ({ doc, patchInfo }) => {
-    renderTitle(doc, patchInfo.before)
-    renderBranches(doc)
-  })
-  return () => (stopDoc(), stopIndex())
+  const stopIndex = listen(index, ({ doc, patchInfo }) => renderTitle(doc, patchInfo.before))
+  const stopBranch = setupBranchNav(index, docUrl, handle)
+  return () => (stopDoc(), stopIndex(), stopBranch())
 }
 
 function renderDoc(doc) {
