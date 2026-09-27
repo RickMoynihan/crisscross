@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Automerge · textarea history</title>
+<style>
+* { box-sizing: border-box } body { margin: 24px; color: #263342; background: #fafaf8; font: 14px system-ui }
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap }
+input, button, select { font: inherit; padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; background: white }
+input { width: 150px } button { cursor: pointer } #status, .hint { color: #65717b; font-size: 12px }
+main > section { min-width: 0 }
+main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 24px } h2 { font-size: 14px; font-weight: 600; margin: 0 0 10px }
+#editor { position: relative; height: 65vh; min-height: 240px; overflow: hidden; border: 1px solid #ccc; border-radius: 4px; background: white }
+textarea, #mirror { margin: 0; padding: 14px; border: 0; font: 16px/24px monospace; tab-size: 4; white-space: pre-wrap; overflow-wrap: break-word; letter-spacing: normal }
+textarea { width: 100%; height: 100%; resize: none; background: transparent; color: inherit; outline-offset: -2px }
+#mirror { position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none }
+#cursors { position: absolute; inset: 0; pointer-events: none; overflow: hidden }
+.caret { position: absolute; width: 2px; height: 24px; background: var(--color) }
+.caret span { position: absolute; top: -13px; left: 0; padding: 0 3px; font: 10px/13px system-ui; background: var(--color); color: white; white-space: nowrap; max-width: 130px; overflow: hidden }
+#history { height: 65vh; overflow: auto; border-top: 1px solid #ddd } svg { display: block } svg text { font: 12px system-ui; fill: #52606d } svg g { cursor: pointer } svg g:focus { outline: none } svg g:focus circle { stroke: #111; stroke-width: 3 }
+#current { position: sticky; top: 0; z-index: 1; background: #fafaf8; padding: 8px 0; border-bottom: 1px solid #ddd }
+#heads { font-weight: 600 }
+#history-mode { padding: 12px; margin-bottom: 16px; background: #fff0c2; border: 1px solid #b68118; border-radius: 4px }
+#history-mode strong { margin-right: 12px } #history-mode button { margin-left: 12px }
+#branch-select { max-width: 220px } #branch-status { color: #65717b; font-size: 12px }
+#branch-info { margin-bottom: 16px; font-size: 13px } #branch-source { margin-left: 12px }
+#branch-name { width: 160px; margin-left: 12px }
+#individual { width: auto }
+#tooltip { position: fixed; z-index: 2; max-width: min(580px, 95vw); max-height: 70vh; overflow: auto; padding: 12px; border: 1px solid #bbc2c9; border-radius: 5px; background: white; box-shadow: 0 4px 20px #0002; font: 12px/1.5 monospace; white-space: pre-wrap; overflow-wrap: anywhere; pointer-events: none }
+@media(max-width: 700px) { main { grid-template-columns: 1fr } }
+</style>
+<header>
+<label>Name <input id="name" maxlength="60" placeholder="Anonymous" autocomplete="off"></label>
+<label>Branch <select id="branch-select" aria-label="Active branch"></select></label><span id="branch-status" role="status"></span>
+<button id="pause" disabled>Pause sync</button><button id="copy" disabled>Copy link</button>
+<span id="status" role="status">Loading…</span>
+</header>
+<div id="branch-info" hidden><strong id="branch-label"></strong><a id="branch-source">Open source document</a></div>
+<div id="history-mode" role="status" hidden><strong>History View</strong><span id="mode-detail"></span><button id="live">Return to live</button><input id="branch-name" aria-label="Branch name" placeholder="Branch name" maxlength="60"><button id="branch-create">Branch from here</button></div>
+<main>
+<section><h2>Text</h2><div id="editor"><textarea id="text" aria-label="Shared text" spellcheck="false" disabled></textarea><pre id="mirror" aria-hidden="true"></pre><div id="cursors" aria-hidden="true"></div></div><p class="hint">Open the same link in another tab. Pause sync, edit both, then resume to combine their edits.</p></section>
+<section><h2>Activity history</h2><label class="hint"><input type="checkbox" id="individual"> Individual changes</label><div id="history"><div id="current"><button id="heads">Current document</button></div><svg id="graph" role="group" aria-label="Explicit branches and activity timeline"></svg></div><p class="hint">Named tracks are explicit branches · click a live tip to switch · click an edit or fork to view its state</p></section>
+</main>
+<div id="tooltip" role="tooltip" hidden></div>
+<script type="module" src="./app.js"></script>
+</html>

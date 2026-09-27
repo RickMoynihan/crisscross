@@ -1,0 +1,19 @@
+{
+  "name": "automerge-textarea-history",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "npm run build -- --servedir=public --serve=8000",
+    "build": "esbuild main.js --bundle --format=esm --target=es2022 --outfile=public/app.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@automerge/automerge": "^3.5.0",
+    "@automerge/automerge-repo": "^2.5.6",
+    "@automerge/automerge-repo-network-websocket": "^2.5.6",
+    "@automerge/automerge-repo-storage-indexeddb": "^2.5.6"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}
