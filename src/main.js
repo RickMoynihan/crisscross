@@ -228,7 +228,7 @@ function showIndex(index) {
     $("new-title").value = ""
   }
 
-  document.title = "Automerge Markdown"
+  document.title = "Criss Cross"
   render()
   show(indexView)
   const stopItems = listen(index, render)

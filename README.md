@@ -1,4 +1,4 @@
-# Automerge Markdown
+# Criss Cross
 
 A minimal collaborative markdown editor that demonstrates the [Automerge](https://automerge.org) CRDT.
 
