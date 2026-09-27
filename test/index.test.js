@@ -44,4 +44,16 @@ assert.deepEqual(titles(merged, true), ["d"])
 assert.equal(merged.docs["url-b"].title, "bee!") // both text edits kept
 console.log(titles(merged))
 
+// Branches: recording a fork records its heads, and merging a branch's
+// changes back in follows normal CRDT merge rules.
+doc = A.change(doc, (d) => Index.addBranch(d, "url-a", "feature", "automerge:branch-a", ["head-a"]))
+assert.deepEqual(Index.branches(doc, "url-a").map((b) => b.name), ["feature"])
+assert.deepEqual(Index.branches(doc, "url-a")[0].forkHeads, ["head-a"])
+
+// A branch of a document that isn't in the list yet is added to it.
+assert.equal(doc.docs["url-e"], undefined)
+doc = A.change(doc, (d) => Index.addBranch(d, "url-e", "feature", "automerge:branch-e", []))
+assert.equal(doc.docs["url-e"].title, "")
+assert.deepEqual(Index.branches(doc, "url-e").map((b) => b.name), ["feature"])
+
 console.log("ok: index")

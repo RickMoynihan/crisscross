@@ -51,7 +51,15 @@
     </section>
 
     <section id="doc-view" hidden>
-      <p><a id="back">&larr; All documents</a>. Users: <span id="users"></span></p>
+      <p>
+        <a id="back">&larr; All documents</a>.
+        Branch: <select id="branch-select" aria-label="Branch"></select>
+        <span id="merge-controls" hidden>
+          into <select id="merge-target" aria-label="Merge into"></select>
+          <button type="button" id="merge-btn">Merge branch</button>
+        </span>
+        Users: <span id="users"></span>
+      </p>
       <h2><input id="title" placeholder="Untitled" aria-label="Title"></h2>
       <p id="archived-note" hidden>This document has been deleted from the list. Restore it from the archive.</p>
       <main>
