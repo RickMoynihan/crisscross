@@ -8,6 +8,7 @@
     body { font-family: sans-serif; max-width: 80rem; margin: 1rem auto; padding: 0 1rem; }
     main { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     #users span { font-weight: bold; margin-right: 1em; }
+    #title { font: inherit; width: 100%; box-sizing: border-box; }
 
     /* The editor is a transparent textarea layered over a <pre> holding the
        same text coloured by author. Both must share exact box and font metrics. */
@@ -31,15 +32,36 @@
   </form>
 
   <div id="app" hidden>
-    <p>You are <b id="me"></b>. Users: <span id="users"></span></p>
-    <p><small id="status"></small> <a href="./">New document</a></p>
-    <main>
-      <div class="editor">
-        <pre id="backdrop" aria-hidden="true"></pre>
-        <textarea id="text" spellcheck="false" aria-label="Markdown"></textarea>
-      </div>
-      <div id="preview"></div>
-    </main>
+    <p>You are <b id="me"></b>. <small id="status"></small></p>
+    <p id="message" hidden></p>
+
+    <section id="index-view" hidden>
+      <h2>Documents</h2>
+      <ol id="items"></ol>
+      <p id="empty">No documents yet.</p>
+      <form id="add">
+        <input id="new-title" required placeholder="Title" aria-label="New document title">
+        <button>Add document</button>
+      </form>
+      <details>
+        <summary>Archive (<span id="archive-count">0</span>)</summary>
+        <p>Deleted documents are kept here and can be restored.</p>
+        <ul id="archive"></ul>
+      </details>
+    </section>
+
+    <section id="doc-view" hidden>
+      <p><a id="back">&larr; All documents</a>. Users: <span id="users"></span></p>
+      <h2><input id="title" placeholder="Untitled" aria-label="Title"></h2>
+      <p id="archived-note" hidden>This document has been deleted from the list. Restore it from the archive.</p>
+      <main>
+        <div class="editor">
+          <pre id="backdrop" aria-hidden="true"></pre>
+          <textarea id="text" spellcheck="false" aria-label="Markdown"></textarea>
+        </div>
+        <div id="preview"></div>
+      </main>
+    </section>
   </div>
 
   <script type="module" src="app.js"></script>

@@ -18,7 +18,10 @@ export function colorFor(name) {
   return `hsl(${h % 360} 70% 38%)`
 }
 
+export const newDoc = () => ({ text: "", users: {} })
+
 export function join(handle, name) {
+  if (handle.doc().users?.[name]) return
   handle.change((d) => {
     if (!d.users) d.users = {}
     if (!d.users[name]) d.users[name] = { color: colorFor(name) }

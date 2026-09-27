@@ -5,7 +5,7 @@
   "scripts": {
     "build": "esbuild src/main.js --bundle --format=esm --target=es2022 --minify --sourcemap --outfile=public/app.js",
     "start": "esbuild src/main.js --bundle --format=esm --target=es2022 --sourcemap --outfile=public/app.js --servedir=public --serve=8000",
-    "test": "node test/sync.test.js"
+    "test": "node test/index.test.js && node test/sync.test.js"
   },
   "type": "module",
   "dependencies": {
