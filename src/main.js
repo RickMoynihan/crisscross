@@ -392,6 +392,13 @@ function showDoc(index, docUrl, branchName, handle) {
   $("back").href = `#${index.url}`
   const branchHash = (name) => `#${index.url}/${docUrl}${name ? "/" + encodeURIComponent(name) : ""}`
 
+  // This document's own branches (below) are separate from whether the list
+  // it's in is itself a branch, so surface that too, or it looks like it was
+  // silently dropped when following a link into a document.
+  const listBranchOf = index.doc().branchOf
+  $("doc-list-branch-note").hidden = !listBranchOf
+  if (listBranchOf) $("doc-list-branch-name").textContent = listBranchOf.name
+
   const renderTitle = (doc, before) => {
     updateField(titleInput, path, doc, before)
     const entry = doc.docs[docUrl]
