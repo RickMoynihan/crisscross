@@ -37,6 +37,14 @@
 
     <section id="index-view" hidden>
       <h2>Documents</h2>
+      <p>
+        Branch: <select id="index-branch-select" aria-label="Branch"></select>
+        <span id="index-merge-controls" hidden>
+          into <select id="index-merge-target" aria-label="Merge into"></select>
+          <button type="button" id="index-merge-btn">Merge branch</button>
+        </span>
+      </p>
+      <p id="index-branch-note" hidden>This is a branch of the main list. Documents here are independent copies until merged.</p>
       <ol id="items"></ol>
       <p id="empty">No documents yet.</p>
       <form id="add">
