@@ -33,18 +33,18 @@
 
   <div id="app" hidden>
     <p>You are <b id="me"></b>. <small id="status"></small> <button type="button" id="copy-agent">Copy link for an AI agent</button></p>
+    <p>
+      Branch: <select id="branch-select" aria-label="Branch"></select>
+      <span id="merge-controls" hidden>
+        into <select id="merge-target" aria-label="Merge into"></select>
+        <button type="button" id="merge-btn">Merge branch</button>
+      </span>
+    </p>
+    <p id="branch-note" hidden>You are on the "<b id="branch-name"></b>" branch. Documents here are independent copies until merged.</p>
     <p id="message" hidden></p>
 
     <section id="index-view" hidden>
       <h2>Documents</h2>
-      <p>
-        Branch: <select id="index-branch-select" aria-label="Branch"></select>
-        <span id="index-merge-controls" hidden>
-          into <select id="index-merge-target" aria-label="Merge into"></select>
-          <button type="button" id="index-merge-btn">Merge branch</button>
-        </span>
-      </p>
-      <p id="index-branch-note" hidden>This is a branch of the main list. Documents here are independent copies until merged.</p>
       <ol id="items"></ol>
       <p id="empty">No documents yet.</p>
       <form id="add">
@@ -59,17 +59,8 @@
     </section>
 
     <section id="doc-view" hidden>
-      <p>
-        <a id="back">&larr; All documents</a>.
-        Branch: <select id="branch-select" aria-label="Branch"></select>
-        <span id="merge-controls" hidden>
-          into <select id="merge-target" aria-label="Merge into"></select>
-          <button type="button" id="merge-btn">Merge branch</button>
-        </span>
-        Users: <span id="users"></span>
-      </p>
+      <p><a id="back">&larr; All documents</a>. Users: <span id="users"></span></p>
       <h2><input id="title" placeholder="Untitled" aria-label="Title"></h2>
-      <p id="doc-list-branch-note" hidden>This document belongs to the "<b id="doc-list-branch-name"></b>" branch of the document list.</p>
       <p id="archived-note" hidden>This document has been deleted from the list. Restore it from the archive.</p>
       <main>
         <div class="editor">

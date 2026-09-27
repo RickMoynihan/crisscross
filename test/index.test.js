@@ -44,20 +44,9 @@ assert.deepEqual(titles(merged, true), ["d"])
 assert.equal(merged.docs["url-b"].title, "bee!") // both text edits kept
 console.log(titles(merged))
 
-// Branches: recording a fork records its heads, and merging a branch's
-// changes back in follows normal CRDT merge rules.
-doc = A.change(doc, (d) => Index.addBranch(d, "url-a", "feature", "automerge:branch-a", ["head-a"]))
-assert.deepEqual(Index.branches(doc, "url-a").map((b) => b.name), ["feature"])
-assert.deepEqual(Index.branches(doc, "url-a")[0].forkHeads, ["head-a"])
-
-// A branch of a document that isn't in the list yet is added to it.
-assert.equal(doc.docs["url-e"], undefined)
-doc = A.change(doc, (d) => Index.addBranch(d, "url-e", "feature", "automerge:branch-e", []))
-assert.equal(doc.docs["url-e"].title, "")
-assert.deepEqual(Index.branches(doc, "url-e").map((b) => b.name), ["feature"])
-
 // Branches of the index itself: registered on the root, and a branch's
-// entries are re-keyed under their clone's URL with fork provenance.
+// entries are re-keyed under their clone's URL with fork provenance and a
+// stable family identity.
 doc = A.change(doc, (d) => Index.addRootBranch(d, "release", "automerge:branch-index", ["head-root"]))
 assert.deepEqual(Index.rootBranches(doc).map((b) => b.name), ["release"])
 assert.deepEqual(Index.rootBranches(doc)[0].forkHeads, ["head-root"])
@@ -71,6 +60,21 @@ assert.equal(branchDoc.docs["url-a"], undefined)
 assert.equal(branchDoc.docs["automerge:branch-a-clone"].forkedFrom, "url-a")
 assert.deepEqual(branchDoc.docs["automerge:branch-a-clone"].forkHeads, ["head-a"])
 assert.equal(branchDoc.docs["automerge:branch-a-clone"].title, "a")
+assert.equal(branchDoc.docs["automerge:branch-a-clone"].rootDoc, "url-a")
 assert.equal(branchDoc.branchOf.name, "release")
+
+// familyOf/findByFamily let the UI find "the same document" across
+// branches: a never-forked document is its own family.
+assert.equal(Index.familyOf(doc, "url-a"), "url-a")
+assert.equal(Index.familyOf(branchDoc, "automerge:branch-a-clone"), "url-a")
+assert.equal(Index.findByFamily(branchDoc, "url-a"), "automerge:branch-a-clone")
+assert.equal(Index.findByFamily(branchDoc, "url-nonexistent"), undefined)
+
+// Re-forking a branch's document carries the original family forward, so
+// finding "the same document" still works across a branch of a branch.
+let rebranchDoc = A.clone(branchDoc)
+rebranchDoc = A.change(rebranchDoc, (d) => Index.rekeyAsFork(d, "automerge:branch-a-clone", "automerge:branch-a-clone-2", ["head-a-2"]))
+assert.equal(rebranchDoc.docs["automerge:branch-a-clone-2"].rootDoc, "url-a")
+assert.equal(Index.findByFamily(rebranchDoc, "url-a"), "automerge:branch-a-clone-2")
 
 console.log("ok: index")
