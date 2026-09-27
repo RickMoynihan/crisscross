@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Automerge Markdown</title>
+  <style>
+    body { font-family: sans-serif; max-width: 80rem; margin: 1rem auto; padding: 0 1rem; }
+    main { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    #users span { font-weight: bold; margin-right: 1em; }
+    #title { font: inherit; width: 100%; box-sizing: border-box; }
+
+    /* The editor is a transparent textarea layered over a <pre> holding the
+       same text coloured by author. Both must share exact box and font metrics. */
+    .editor { position: relative; }
+    .editor textarea, .editor pre {
+      box-sizing: border-box; width: 100%; height: 70vh; margin: 0; padding: 0.5rem;
+      border: 1px solid #888; font: 1rem/1.5 ui-monospace, Menlo, Consolas, monospace;
+      white-space: pre-wrap; overflow-wrap: break-word; overflow-y: scroll;
+    }
+    .editor pre { position: absolute; inset: 0; height: auto; border-color: transparent; pointer-events: none; }
+    .editor textarea { position: relative; display: block; background: transparent; color: transparent; caret-color: black; resize: vertical; }
+    #preview { border: 1px solid #ddd; padding: 0 1rem; overflow: auto; height: 70vh; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <h1>Automerge Markdown</h1>
+
+  <form id="login">
+    <label>Username <input id="name" required autofocus autocomplete="username"></label>
+    <button>Start</button>
+  </form>
+
+  <div id="app" hidden>
+    <p>You are <b id="me"></b>. <small id="status"></small> <button type="button" id="copy-agent">Copy link for an AI agent</button></p>
+    <p>
+      Branch: <select id="branch-select" aria-label="Branch"></select>
+      <span id="merge-controls" hidden>
+        into <select id="merge-target" aria-label="Merge into"></select>
+        <button type="button" id="merge-btn">Merge branch</button>
+      </span>
+    </p>
+    <p id="branch-note" hidden>You are on the "<b id="branch-name"></b>" branch. Documents here are independent copies until merged.</p>
+    <p id="message" hidden></p>
+
+    <section id="index-view" hidden>
+      <h2>Documents</h2>
+      <ol id="items"></ol>
+      <p id="empty">No documents yet.</p>
+      <form id="add">
+        <input id="new-title" required placeholder="Title" aria-label="New document title">
+        <button>Add document</button>
+      </form>
+      <details>
+        <summary>Archive (<span id="archive-count">0</span>)</summary>
+        <p>Deleted documents are kept here and can be restored.</p>
+        <ul id="archive"></ul>
+      </details>
+    </section>
+
+    <section id="doc-view" hidden>
+      <p><a id="back">&larr; All documents</a>. Users: <span id="users"></span></p>
+      <h2><input id="title" placeholder="Untitled" aria-label="Title"></h2>
+      <p id="archived-note" hidden>This document has been deleted from the list. Restore it from the archive.</p>
+      <main>
+        <div class="editor">
+          <pre id="backdrop" aria-hidden="true"></pre>
+          <textarea id="text" spellcheck="false" aria-label="Markdown"></textarea>
+        </div>
+        <div id="preview"></div>
+      </main>
+    </section>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
