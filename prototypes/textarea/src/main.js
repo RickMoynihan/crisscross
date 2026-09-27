@@ -21,7 +21,7 @@ const backdrop = $("backdrop")
 const titleInput = $("title")
 
 // The package collaborators install to give their AI agent access (see README).
-const AGENT_PACKAGE = "github:RickMoynihan/amexp"
+const AGENT_PACKAGE = "github:RickMoynihan/crisscross"
 
 // Don't render raw HTML from the shared document; show it as text instead.
 const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
