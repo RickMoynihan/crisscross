@@ -45,15 +45,25 @@ export function diff(oldText, newText) {
   return { start, del: oldEnd - start, insert: newText.slice(start, newEnd) }
 }
 
+// Splice text into a mutable doc, marking the inserted range with its author.
+export function spliceAuthored(d, name, start, del, insert) {
+  if (del === 0 && insert === "") return
+  A.splice(d, TEXT, start, del, insert)
+  if (insert.length) {
+    A.mark(d, TEXT, { start, end: start + insert.length, expand: "none" }, "author", name)
+  }
+}
+
 export function applyEdit(handle, name, newText) {
   handle.change((d) => {
     const { start, del, insert } = diff(d.text, newText)
-    if (del === 0 && insert === "") return
-    A.splice(d, TEXT, start, del, insert)
-    if (insert.length) {
-      A.mark(d, TEXT, { start, end: start + insert.length, expand: "none" }, "author", name)
-    }
+    spliceAuthored(d, name, start, del, insert)
   })
+}
+
+// Everyone who wrote some of the current text.
+export function authors(doc) {
+  return [...new Set(segments(doc).map(([, who]) => who).filter(Boolean))].sort()
 }
 
 // Split the text into runs of [text, author|null] for rendering.

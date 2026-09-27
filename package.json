@@ -1,11 +1,11 @@
 {
-  "name": "automerge",
+  "name": "automerge-wiki",
   "version": "1.0.0",
-  "description": "Collaborative markdown editor demo using Automerge",
+  "description": "Collaborative markdown wiki demo using Automerge, with a CLI and MCP server for AI agents",
   "scripts": {
     "build": "esbuild src/main.js --bundle --format=esm --target=es2022 --minify --sourcemap --outfile=public/app.js",
     "start": "esbuild src/main.js --bundle --format=esm --target=es2022 --sourcemap --outfile=public/app.js --servedir=public --serve=8000",
-    "test": "node test/index.test.js && node test/sync.test.js"
+    "test": "node test/index.test.js && node test/sync.test.js && node test/mcp.test.js"
   },
   "type": "module",
   "dependencies": {
@@ -13,10 +13,22 @@
     "@automerge/automerge-repo": "^2.5.6",
     "@automerge/automerge-repo-network-websocket": "^2.5.6",
     "@automerge/automerge-repo-storage-indexeddb": "^2.5.6",
-    "marked": "^18.0.14"
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "marked": "^18.0.14",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
   },
-  "private": true
+  "private": true,
+  "bin": {
+    "automerge-wiki": "bin/automerge-wiki.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin",
+    "src"
+  ]
 }

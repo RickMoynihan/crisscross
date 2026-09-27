@@ -20,6 +20,9 @@ const textarea = $("text")
 const backdrop = $("backdrop")
 const titleInput = $("title")
 
+// The package collaborators install to give their AI agent access (see README).
+const AGENT_PACKAGE = "github:RickMoynihan/amexp"
+
 // Don't render raw HTML from the shared document; show it as text instead.
 const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 marked.use({ renderer: { html: ({ text }) => escapeHtml(text) } })
@@ -60,7 +63,11 @@ async function start() {
   const online = () => (status.textContent = `Online: syncing via ${SYNC_URL}. Share this page's URL to collaborate.`)
   const offline = () => (status.textContent = "Offline: edits are saved in this browser and will sync when reconnected.")
   let connected = false
-  network.on("peer-candidate", () => ((connected = true), online()))
+  network.on("peer-candidate", () => {
+    connected = true
+    online()
+    if (!message.hidden) route() // retry a "not found" now the server is connected
+  })
   network.on("peer-disconnected", () => ((connected = false), offline()))
   Object.assign(window, { repo, network }) // handy for poking at from the console
 
@@ -68,9 +75,27 @@ async function start() {
     backdrop.scrollTop = textarea.scrollTop
     backdrop.scrollLeft = textarea.scrollLeft
   })
+  $("copy-agent").addEventListener("click", copyForAgent)
   window.addEventListener("hashchange", route)
   await route()
   if (!connected) offline()
+}
+
+// Copy this page's URL with instructions for giving an AI agent access.
+async function copyForAgent(e) {
+  const text = `Collaborative wiki: ${location.href}
+
+To let Claude read and edit it, add its MCP server once:
+  claude mcp add -s user automerge-wiki -- npx -y ${AGENT_PACKAGE} mcp
+
+Then ask, e.g.: "Summarise the wiki at ${location.href}"`
+  try {
+    await navigator.clipboard.writeText(text)
+    e.target.textContent = "Copied"
+  } catch {
+    e.target.textContent = "Couldn't copy"
+  }
+  setTimeout(() => (e.target.textContent = "Copy link for an AI agent"), 2000)
 }
 
 // URLs are #<index url> for the document list, and #<index url>/<doc url>
