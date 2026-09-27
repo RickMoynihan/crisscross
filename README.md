@@ -18,7 +18,10 @@ npm ci          # install exact locked dependencies
 npm start       # dev server on http://localhost:8000 (rebuilds on reload)
 npm run build   # produce public/app.js; public/ is then a static site
 npm test        # two clients edit concurrently via the sync server and must converge
+./deploy.sh     # build and force-push public/ to the gh-pages branch
 ```
+
+For GitHub Pages, set the repo's Settings > Pages > Source to "Deploy from a branch", using `gh-pages` and `/ (root)`. The site is then served at `https://<user>.github.io/<repo>/`.
 
 ## Layout
 
