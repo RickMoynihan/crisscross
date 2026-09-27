@@ -236,10 +236,149 @@ function showIndex(index) {
     $("new-title").value = ""
   }
 
+  // Branching the index deep-clones it and every document it lists, so the
+  // branch is a fully independent copy until it's merged back (see
+  // createRootBranch). `root` holds the flat list of sibling branches: it's
+  // `index` itself unless this index is a branch, in which case it's loaded
+  // asynchronously below.
+  let left = false
+  let root = index
+  let stopRoot = () => {}
+
+  // A branch has something to merge once either the index itself, or any
+  // document it forked, has changed since the branch was created.
+  const checkDiverged = async (mine) => {
+    if (!sameHeads(index.heads(), mine.forkHeads)) return true
+    for (const [url, entry] of Object.entries(index.doc().docs ?? {})) {
+      if (!entry.forkedFrom || !entry.forkHeads) continue
+      const h = await repo.find(url).catch(() => null)
+      if (h && !sameHeads(h.heads(), entry.forkHeads)) return true
+    }
+    return false
+  }
+
+  const renderBranches = () => {
+    const family = Index.rootBranches(root.doc())
+    const isRoot = root.url === index.url
+    $("index-branch-select").replaceChildren(
+      el("option", { value: root.url, selected: isRoot }, "main"),
+      ...family.map((b) => el("option", { value: b.url, selected: b.url === index.url }, b.name)),
+      el("option", { value: "__new__" }, "+ New branch…"),
+    )
+    $("index-branch-note").hidden = isRoot
+
+    const mine = !isRoot && family.find((b) => b.url === index.url)
+    if (!mine) {
+      $("index-merge-controls").hidden = true
+      return
+    }
+    checkDiverged(mine).then((diverged) => {
+      if (left) return
+      $("index-merge-controls").hidden = !diverged
+      if (diverged) {
+        $("index-merge-target").replaceChildren(
+          el("option", { value: root.url }, "main"),
+          ...family.filter((b) => b.url !== index.url).map((b) => el("option", { value: b.url }, b.name)),
+        )
+      }
+    })
+  }
+
+  $("index-branch-select").onchange = async (e) => {
+    const value = e.target.value
+    if (value !== "__new__") {
+      location.hash = `#${value}`
+      return
+    }
+    renderBranches() // reset the select back to the current branch
+    const name = (prompt("New branch name") ?? "").trim()
+    if (!name) return
+    if (name === "main" || Index.rootBranches(root.doc()).some((b) => b.name === name)) {
+      alert(`A branch called "${name}" already exists.`)
+      return
+    }
+    await createRootBranch(root, index, name)
+  }
+
+  $("index-merge-btn").onclick = async () => {
+    const targetUrl = $("index-merge-target").value
+    const targetHandle = await repo.find(targetUrl)
+    await mergeRootBranch(targetHandle, index)
+    location.hash = `#${targetUrl}`
+  }
+
   document.title = "Automerge Markdown"
   render()
+  renderBranches()
   show(indexView)
-  return listen(index, render)
+  const stopItems = listen(index, () => {
+    render()
+    renderBranches()
+  })
+
+  ;(async () => {
+    const branchOf = index.doc().branchOf
+    if (!branchOf) return
+    const r = await repo.find(branchOf.root).catch(() => null)
+    if (left || !r) return
+    root = r
+    stopRoot = listen(root, renderBranches)
+    renderBranches()
+  })()
+
+  return () => {
+    left = true
+    stopItems()
+    stopRoot()
+  }
+}
+
+// Deep-clone `source` (an index, possibly itself a branch) and every
+// document it lists into a brand new named branch, registered on `root`'s
+// flat sibling list, then navigate to it. Each cloned document records
+// `forkedFrom` and its own fork heads, so a later merge knows where its
+// changes belong and the UI can tell whether it has diverged.
+async function createRootBranch(root, source, name) {
+  const newIndex = repo.clone(source)
+
+  const rekeyed = []
+  for (const [url] of Object.entries(source.doc().docs ?? {})) {
+    const src = await repo.find(url).catch(() => null)
+    if (!src) continue
+    const cloned = repo.clone(src)
+    rekeyed.push({ oldUrl: url, newUrl: cloned.url, forkHeads: cloned.heads() })
+  }
+  // Re-keying and stamping `branchOf` are themselves changes, so the fork
+  // heads (what "no changes yet" is measured against) are taken afterwards.
+  newIndex.change((d) => {
+    for (const r of rekeyed) Index.rekeyAsFork(d, r.oldUrl, r.newUrl, r.forkHeads)
+    d.branchOf = { root: root.url, name }
+  })
+  const forkHeads = newIndex.heads()
+  root.change((d) => Index.addRootBranch(d, name, newIndex.url, forkHeads))
+  location.hash = `#${newIndex.url}`
+}
+
+// Merge every document a branch index lists back into its counterpart in
+// `target` (matched via `forkedFrom`) with normal CRDT merge rules, and add
+// any document the branch created that target doesn't have yet.
+async function mergeRootBranch(target, branch) {
+  for (const [url, entry] of Object.entries(branch.doc().docs ?? {})) {
+    const branchDoc = await repo.find(url).catch(() => null)
+    if (!branchDoc) continue
+    if (entry.forkedFrom) {
+      const targetDoc = await repo.find(entry.forkedFrom).catch(() => null)
+      if (!targetDoc) continue
+      targetDoc.merge(branchDoc) // real CRDT merge of the document's own content
+      target.change((d) => {
+        if (!d.docs[entry.forkedFrom]) return
+        Index.rename(d, entry.forkedFrom, entry.title)
+        d.docs[entry.forkedFrom].archived = entry.archived
+      })
+    } else if (!target.doc().docs?.[url]) {
+      target.change((d) => Index.add(d, url, entry.title))
+    }
+  }
 }
 
 // ---- Markdown document ----

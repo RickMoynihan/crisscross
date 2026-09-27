@@ -1,8 +1,11 @@
 // The index document: the shared, editable list of markdown documents.
 //
 // Its shape is:
-//   { docs: { [docUrl]: { title, order, archived, branches } } }
-//   branches: { [name]: { url, createdAt, forkHeads } }
+//   {
+//     docs: { [docUrl]: { title, order, archived, branches, forkedFrom, forkHeads } },
+//     branches: { [name]: { url, createdAt, forkHeads } },
+//     branchOf: { root, name },
+//   }
 //
 // Entries live in a map keyed by document URL rather than in a list, and are
 // sorted by `order`. Reordering only changes numbers, so concurrent moves by
@@ -14,6 +17,15 @@
 // causal history with the document as of the fork, so they can later be
 // merged back with `handle.merge()`. `forkHeads` records the heads at fork
 // time, so the UI can tell whether a branch has any changes yet to merge.
+//
+// The index document itself can also be branched: this deep-clones the index
+// and every document it lists, so the branch is a fully isolated copy of the
+// whole list, addressable at its own URL exactly like any other index. Each
+// cloned document entry gets `forkedFrom` (the document it was cloned from)
+// and its own `forkHeads`, and the branch index itself gets `branchOf` (which
+// root index it belongs to, and its name there). Only the root index (the
+// one with no `branchOf`) tracks the flat `branches` map of every branch in
+// the family, so branches of branches are still siblings for merge purposes.
 //
 // These functions take a mutable doc, e.g. handle.change((d) => add(d, ...)).
 
@@ -81,4 +93,29 @@ export function addBranch(d, url, name, branchUrl, forkHeads) {
   if (!d.docs[url]) d.docs[url] = { title: "", order: nextOrder(d), archived: false }
   if (!d.docs[url].branches) d.docs[url].branches = {}
   d.docs[url].branches[name] = { url: branchUrl, createdAt: Date.now(), forkHeads: [...forkHeads] }
+}
+
+// Named branches of the index itself, sorted by creation order. Only ever
+// populated on a root index (one with no `branchOf`).
+export function rootBranches(doc) {
+  const map = doc.branches ?? {}
+  return Object.keys(map)
+    .map((name) => ({ name, url: map[name].url, createdAt: map[name].createdAt, forkHeads: map[name].forkHeads }))
+    .sort((a, b) => a.createdAt - b.createdAt || (a.name < b.name ? -1 : 1))
+}
+
+// Record a newly created branch of the index, on its root.
+export function addRootBranch(d, name, branchUrl, forkHeads) {
+  if (!d.branches) d.branches = {}
+  d.branches[name] = { url: branchUrl, createdAt: Date.now(), forkHeads: [...forkHeads] }
+}
+
+// Used only within a freshly cloned branch index: re-key a document entry
+// under its clone's URL, recording where it was forked from (and that
+// clone's heads) so a later merge knows where its changes belong.
+export function rekeyAsFork(d, oldUrl, newUrl, forkHeads) {
+  const e = d.docs[oldUrl]
+  if (!e) return
+  delete d.docs[oldUrl]
+  d.docs[newUrl] = { title: e.title, order: e.order, archived: e.archived, forkedFrom: oldUrl, forkHeads: [...forkHeads] }
 }

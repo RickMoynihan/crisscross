@@ -56,4 +56,21 @@ doc = A.change(doc, (d) => Index.addBranch(d, "url-e", "feature", "automerge:bra
 assert.equal(doc.docs["url-e"].title, "")
 assert.deepEqual(Index.branches(doc, "url-e").map((b) => b.name), ["feature"])
 
+// Branches of the index itself: registered on the root, and a branch's
+// entries are re-keyed under their clone's URL with fork provenance.
+doc = A.change(doc, (d) => Index.addRootBranch(d, "release", "automerge:branch-index", ["head-root"]))
+assert.deepEqual(Index.rootBranches(doc).map((b) => b.name), ["release"])
+assert.deepEqual(Index.rootBranches(doc)[0].forkHeads, ["head-root"])
+
+let branchDoc = A.clone(doc)
+branchDoc = A.change(branchDoc, (d) => {
+  Index.rekeyAsFork(d, "url-a", "automerge:branch-a-clone", ["head-a"])
+  d.branchOf = { root: "automerge:root", name: "release" }
+})
+assert.equal(branchDoc.docs["url-a"], undefined)
+assert.equal(branchDoc.docs["automerge:branch-a-clone"].forkedFrom, "url-a")
+assert.deepEqual(branchDoc.docs["automerge:branch-a-clone"].forkHeads, ["head-a"])
+assert.equal(branchDoc.docs["automerge:branch-a-clone"].title, "a")
+assert.equal(branchDoc.branchOf.name, "release")
+
 console.log("ok: index")
