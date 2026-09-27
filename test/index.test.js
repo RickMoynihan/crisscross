@@ -77,4 +77,11 @@ rebranchDoc = A.change(rebranchDoc, (d) => Index.rekeyAsFork(d, "automerge:branc
 assert.equal(rebranchDoc.docs["automerge:branch-a-clone-2"].rootDoc, "url-a")
 assert.equal(Index.findByFamily(rebranchDoc, "url-a"), "automerge:branch-a-clone-2")
 
+// Once merged, a branch is unregistered but left otherwise untouched, and
+// other branches aren't affected.
+doc = A.change(doc, (d) => Index.addRootBranch(d, "other", "automerge:branch-other", ["head-other"]))
+assert.deepEqual(Index.rootBranches(doc).map((b) => b.name).sort(), ["other", "release"])
+doc = A.change(doc, (d) => Index.removeRootBranch(d, "release"))
+assert.deepEqual(Index.rootBranches(doc).map((b) => b.name), ["other"])
+
 console.log("ok: index")

@@ -95,6 +95,14 @@ export function addRootBranch(d, name, branchUrl, forkHeads) {
   d.branches[name] = { url: branchUrl, createdAt: Date.now(), forkHeads: [...forkHeads] }
 }
 
+// Unregister a branch, e.g. once it's been merged. This only removes it
+// from the root's list of branches -- its own index and documents are left
+// alone (a stale link still works), consistent with archiving rather than
+// deleting documents elsewhere in this app.
+export function removeRootBranch(d, name) {
+  if (d.branches) delete d.branches[name]
+}
+
 // Used only within a freshly cloned branch index: re-key a document entry
 // under its clone's URL, recording where it was forked from (and that
 // clone's heads) so a later merge knows where its changes belong. `rootDoc`

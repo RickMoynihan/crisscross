@@ -319,6 +319,10 @@ function setupBranchNav(index, docUrl, docHandle) {
     const target = await repo.find(targetUrl).catch(() => null)
     if (!target) return
     await mergeRootBranch(target, index)
+    // The source branch has served its purpose once merged; unregister it,
+    // leaving the target and every other branch untouched.
+    const mine = Index.rootBranches(root.doc()).find((b) => b.url === index.url)
+    if (mine) root.change((d) => Index.removeRootBranch(d, mine.name))
     follow(targetUrl, target.doc())
   }
 
