@@ -271,10 +271,14 @@ function setupBranchNav(index, docUrl, docHandle) {
     const siblings = Index.rootBranches(root.doc())
     const isRoot = root.url === index.url
     $("branch-select").replaceChildren(
-      el("option", { value: root.url, selected: isRoot }, "main"),
-      ...siblings.map((b) => el("option", { value: b.url, selected: b.url === index.url }, b.name)),
+      el("option", { value: root.url }, "main"),
+      ...siblings.map((b) => el("option", { value: b.url }, b.name)),
       el("option", { value: "__new__" }, "+ New branch…"),
     )
+    // Set selectedness via the <select>'s own value, not each <option>'s
+    // `selected` property: Safari doesn't reliably honour the latter when
+    // it's set before the option is inserted into the select.
+    $("branch-select").value = index.url
     $("branch-note").hidden = isRoot
     if (!isRoot) $("branch-name").textContent = siblings.find((b) => b.url === index.url)?.name ?? ""
 
