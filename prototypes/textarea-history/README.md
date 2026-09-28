@@ -47,7 +47,9 @@ history. A banner identifies the branch and links to its source. Branches can
 also be branched. The selector and timeline discover related branches automatically
 for everyone sharing the document. Each branch has its own live track; edits and
 new history entries update even while you are viewing another branch or a pinned
-snapshot. Fork markers retain the exact state from which each branch was created.
+snapshot. Branch tracks split directly at their historical source entry. A branch-name
+badge at the junction opens the exact saved starting state, even if later concurrent
+changes alter the source timeline.
 
 The branch preserves the entire snapshot on screen, including concurrent work
 represented by multiple heads, and excludes edits outside that snapshot. Original

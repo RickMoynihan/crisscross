@@ -1,7 +1,7 @@
 import { Automerge as A } from '@automerge/automerge-repo/slim'
 import { layout, author } from './graph.js'
 
-// Each document keeps its own linear activity. Fork markers are explicitly
+// Each document keeps its own linear activity. Fork badges are explicitly
 // labelled snapshots, since a saved multi-head state need not still be a prefix
 // of its source's activity order after late changes arrive.
 export function branchHistory(handles, { grouped = true, selected = null, lanes = new Map() } = {}) {
@@ -65,12 +65,9 @@ export function branchHistory(handles, { grouped = true, selected = null, lanes 
     if (previous) edges.push({ from: tip, to: previous })
   }
   for (const url of records.keys()) add(url)
-  function attachFork(fork, anchor, sourceUrl) {
-    // Insert the snapshot into the source track, before its later activity.
-    const sourceLane = lanes.get(sourceUrl)
-    for (const edge of edges) {
-      if (edge.to === anchor && rows.get(edge.from).lane === sourceLane) edge.to = fork
-    }
+  function attachFork(fork, anchor) {
+    // Preserve the snapshot for interaction, but draw the split at its anchor.
+    rows.get(fork).anchor = anchor
     edges.push({ from: fork, to: anchor })
   }
   // Attach each saved fork to the source activity at its latest included change.
@@ -97,9 +94,9 @@ export function branchHistory(handles, { grouped = true, selected = null, lanes 
         // Keep source.runs updated for another branch forking inside this run.
         const index = source.runs.indexOf(anchor)
         source.runs.splice(index, 1, rows.get(prefixId), rows.get(oldId))
-        attachFork(`${url}/fork`, prefixId, source.handle.url)
-      } else attachFork(`${url}/fork`, `${source.handle.url}/${anchor.hash}`, source.handle.url)
-    } else if (source.branch) attachFork(`${url}/fork`, `${source.handle.url}/fork`, source.handle.url)
+        attachFork(`${url}/fork`, prefixId)
+      } else attachFork(`${url}/fork`, `${source.handle.url}/${anchor.hash}`)
+    } else if (source.branch) attachFork(`${url}/fork`, `${source.handle.url}/fork`)
   }
   const pending = new Map([...rows.keys()].map(id => [id, 0])), children = new Map()
   for (const edge of edges) {
@@ -117,5 +114,14 @@ export function branchHistory(handles, { grouped = true, selected = null, lanes 
     }
   }
   if (ordered.length !== rows.size) throw new Error('Invalid branch graph')
-  return { nodes: ordered.reverse().map((row, index) => ({ ...row, row: index })), edges, lanes }
+  const visible = ordered.reverse().filter(row => !row.anchor)
+  const positions = new Map(visible.map((row, index) => [row.id, index]))
+  function anchorOf(id) {
+    const anchor = rows.get(id).anchor
+    return anchor ? anchorOf(anchor) : id
+  }
+  const nodes = ordered.map(row => ({ ...row, row: positions.get(anchorOf(row.id)) }))
+  const connections = edges.filter(edge => !rows.get(edge.from).anchor)
+    .map(edge => ({ ...edge, to: anchorOf(edge.to) }))
+  return { nodes, edges: connections, lanes }
 }

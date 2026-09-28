@@ -17,7 +17,7 @@ textarea { width: 100%; height: 100%; resize: none; background: transparent; col
 #cursors { position: absolute; inset: 0; pointer-events: none; overflow: hidden }
 .caret { position: absolute; width: 2px; height: 24px; background: var(--color) }
 .caret span { position: absolute; top: -13px; left: 0; padding: 0 3px; font: 10px/13px system-ui; background: var(--color); color: white; white-space: nowrap; max-width: 130px; overflow: hidden }
-#history { height: 65vh; overflow: auto; border-top: 1px solid #ddd } svg { display: block } svg text { font: 12px system-ui; fill: #52606d } svg g { cursor: pointer } svg g:focus { outline: none } svg g:focus circle { stroke: #111; stroke-width: 3 }
+#history { height: 65vh; overflow: auto; border-top: 1px solid #ddd } svg { display: block } svg text { font: 12px system-ui; fill: #52606d } svg g { cursor: pointer } svg g:focus { outline: none } svg g:focus circle, svg g:focus rect { stroke: #111; stroke-width: 3 }
 #current { position: sticky; top: 0; z-index: 1; background: #fafaf8; padding: 8px 0; border-bottom: 1px solid #ddd }
 #heads { font-weight: 600 }
 #history-mode { padding: 12px; margin-bottom: 16px; background: #fff0c2; border: 1px solid #b68118; border-radius: 4px }
@@ -39,7 +39,7 @@ textarea { width: 100%; height: 100%; resize: none; background: transparent; col
 <div id="history-mode" role="status" hidden><strong>History View</strong><span id="mode-detail"></span><button id="live">Return to live</button><input id="branch-name" aria-label="Branch name" placeholder="Branch name" maxlength="60"><button id="branch-create">Branch from here</button></div>
 <main>
 <section><h2>Text</h2><div id="editor"><textarea id="text" aria-label="Shared text" spellcheck="false" disabled></textarea><pre id="mirror" aria-hidden="true"></pre><div id="cursors" aria-hidden="true"></div></div><p class="hint">Open the same link in another tab. Pause sync, edit both, then resume to combine their edits.</p></section>
-<section><h2>Activity history</h2><label class="hint"><input type="checkbox" id="individual"> Individual changes</label><div id="history"><div id="current"><button id="heads">Current document</button></div><svg id="graph" role="group" aria-label="Explicit branches and activity timeline"></svg></div><p class="hint">Named tracks are explicit branches · click a live tip to switch · click an edit or fork to view its state</p></section>
+<section><h2>Activity history</h2><label class="hint"><input type="checkbox" id="individual"> Individual changes</label><div id="history"><div id="current"><button id="heads">Current document</button></div><svg id="graph" role="group" aria-label="Explicit branches and activity timeline"></svg></div><p class="hint">Named tracks are explicit branches · click a live tip to switch · click an edit or branch badge to view its state</p></section>
 </main>
 <div id="tooltip" role="tooltip" hidden></div>
 <script type="module" src="./app.js"></script>

@@ -73,27 +73,43 @@ try {
     const { nodes, edges } = branchHistory([...documents.values()], {
       grouped: !$('individual').checked, selected: selectedHash, lanes: branchLanes,
     })
-    const x = n => 20 + n.lane * 20, y = n => 24 + n.row * 40
+    const badges = new Map()
+    for (const node of nodes.filter(n => n.anchor)) {
+      if (!badges.has(node.row)) badges.set(node.row, [])
+      badges.get(node.row).push(node)
+    }
+    const rowY = new Map()
+    let height = 24
+    for (const row of [...new Set(nodes.map(n => n.row))].sort((a, b) => a - b)) {
+      rowY.set(row, height)
+      height += 40 + (badges.get(row)?.length || 0) * 24
+    }
+    const x = n => 20 + n.lane * 20, y = n => rowY.get(n.row)
     const labelX = 40 + Math.max(0, branchLanes.size - 1) * 20, width = labelX + 240
-    graph.setAttribute('width', width); graph.setAttribute('height', nodes.length * 40 + 16)
+    graph.setAttribute('width', width); graph.setAttribute('height', height)
     graph.replaceChildren()
     $('heads').textContent = `${handle.doc().branch?.name || 'Main'} · current document`
     const byId = new Map(nodes.map(n => [n.id, n]))
     for (const edge of edges) {
       const from = byId.get(edge.from), to = byId.get(edge.to)
-      const bend = Math.min(y(from) + 28, y(to))
-      graph.append(svg('path', { d: `M${x(from)},${y(from)} C${x(from)},${bend} ${x(to)},${bend} ${x(to)},${Math.min(y(from) + 40, y(to))} L${x(to)},${y(to)}`,
+      const bend = Math.max(y(from), y(to) - 28)
+      graph.append(svg('path', { d: `M${x(from)},${y(from)} L${x(from)},${bend} C${x(from)},${y(to)} ${x(to)},${bend} ${x(to)},${y(to)}`,
         fill: 'none', stroke: color(from.type === 'fork' ? from.branchUrl : from.url), 'stroke-width': 2 }))
     }
     for (const node of nodes) {
       if (node.type !== 'edit') {
         const forkSelected = node.type === 'fork' && selectedHash && handle.url === node.url && sameHeads(selectedHeads, node.afterHeads)
-        const group = svg('g', { tabindex: 0, role: 'button', 'aria-pressed': String(Boolean(forkSelected)), 'data-branch': node.branchUrl || node.url, 'data-kind': node.type, 'aria-label': node.label })
-        group.append(svg('rect', { x: 4, y: y(node) - 17, width: width - 8, height: 34, rx: 5,
+        const badge = Boolean(node.anchor)
+        const badgeY = y(node) + 32 + (badges.get(node.row)?.indexOf(node) || 0) * 24
+        const label = badge ? node.name : node.label
+        const group = svg('g', { tabindex: 0, role: 'button', 'aria-pressed': String(Boolean(forkSelected)), 'data-branch': node.branchUrl || node.url, 'data-kind': node.type, 'aria-label': badge ? `${node.name} · view starting snapshot` : node.label })
+        group.append(svg('title', {}, `${node.name}${badge ? ' · view starting snapshot' : ''}`))
+        group.append(svg('rect', { x: badge ? labelX : 4, y: badge ? badgeY - 14 : y(node) - 17, width: badge ? Math.min(230, label.length * 8 + 20) : width - 8, height: badge ? 22 : 34, rx: 5,
+          stroke: badge ? color(node.branchUrl) : 'none',
           fill: forkSelected ? '#fff0c2' : node.type === 'tip' && node.url === handle.url ? '#e9eef3' : 'transparent' }))
-        group.append(svg('circle', { cx: x(node), cy: y(node), r: node.type === 'tip' ? 8 : 5,
+        if (!badge) group.append(svg('circle', { cx: x(node), cy: y(node), r: node.type === 'tip' ? 8 : 5,
           fill: 'white', stroke: color(node.branchUrl || node.url), 'stroke-width': 2 }))
-        group.append(svg('text', { x: labelX, y: y(node) + 4 }, node.label.length > 31 ? node.label.slice(0, 30) + '…' : node.label))
+        group.append(svg('text', { x: labelX + (badge ? 8 : 0), y: badge ? badgeY + 1 : y(node) + 4 }, label.length > 27 ? label.slice(0, 26) + '…' : label))
         const activate = () => {
           if (node.type === 'tip') switchBranch(node.url)
           else viewHistory({ ...node, url: documents.has(node.url) ? node.url : node.branchUrl,
