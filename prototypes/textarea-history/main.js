@@ -4,7 +4,8 @@ import { WebSocketClientAdapter } from '@automerge/automerge-repo-network-websoc
 import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-indexeddb'
 import { sameHeads, author, color } from './graph.js'
 import { textEdits, describeEdits } from './changes.js'
-import { createBranch, branchLinks, registerBranch } from './branches.js'
+import { createBranch } from './branches.js'
+import { watchBranches } from './branch-documents.js'
 import { branchHistory } from './branch-history.js'
 
 const $ = id => document.getElementById(id)
@@ -23,8 +24,12 @@ try {
   let handle = location.hash ? await repo.find(location.hash.slice(1)) : repo.create({ text: '' })
   history.replaceState(null, '', `#${handle.url}`)
   let paused = false, writing = false, composing = false, compositionHeads, selection = null
-  const peers = new Map(), documents = new Map(), loading = new Set(), branchLanes = new Map()
-  const unavailable = new Map()
+  const peers = new Map(), branchLanes = new Map()
+  const branches = watchBranches(repo, { author: () => username(), onUpdate: () => {
+    refresh()
+    if (composing || writing) { updateBranchSelect(); renderGraph() }
+  } })
+  const { documents, loading, unavailable } = branches
   let selectedHash = null, selectedHeads = null
   let displayed = handle.doc()
   const username = () => name.value.trim() || 'Anonymous'
@@ -179,34 +184,6 @@ try {
     $('branch-select').value = handle.url
     $('branch-status').textContent = unavailable.size ? `${unavailable.size} branch document(s) unavailable · retrying` : loading.size ? 'Loading branches…' : ''
   }
-  function watchDocument(doc) {
-    if (documents.has(doc.url)) return
-    documents.set(doc.url, doc)
-    doc.on('change', () => {
-      discover(doc)
-      if (doc === handle) refresh()
-      else { updateBranchSelect(); renderGraph() }
-    })
-    discover(doc)
-    // Opening an older branch publishes its link once its source is available.
-    for (const known of documents.values()) {
-      const source = documents.get(known.doc().branch?.source)
-      if (source) registerBranch(source, known, username())
-    }
-  }
-  function discover(doc) {
-    for (const link of branchLinks(doc)) {
-      if (documents.has(link.url) || loading.has(link.url) || unavailable.has(link.url)) continue
-      loading.add(link.url)
-      repo.find(link.url).then(found => {
-        loading.delete(link.url); unavailable.delete(link.url)
-        watchDocument(found); updateBranchSelect(); renderGraph()
-      }).catch(() => {
-        loading.delete(link.url); unavailable.set(link.url, Date.now()); updateBranchSelect()
-      })
-    }
-    updateBranchSelect()
-  }
   $('branch-create').onclick = async () => {
     if (!selectedHash || composing) return
     const button = $('branch-create')
@@ -215,7 +192,7 @@ try {
       const branch = createBranch(repo, handle, selectedHeads,
         $('branch-name').value.trim() || `Branch ${selectedHash.slice(0, 7)}`, username())
       await repo.flush([branch.documentId, handle.documentId])
-      watchDocument(branch)
+      branches.watch(branch)
       activateHandle(branch)
       $('branch-name').value = ''
       history.replaceState(null, '', `#${handle.url}`)
@@ -303,11 +280,10 @@ try {
   repo.networkSubsystem.on('peer-disconnected', status)
   setInterval(() => {
     status(); sendPresence(); renderCursors()
-    for (const [url, time] of unavailable) if (Date.now() - time > 15000) unavailable.delete(url)
-    if (!paused) for (const doc of documents.values()) discover(doc)
+    if (!paused) branches.retry()
   }, 3000)
   text.disabled = $('pause').disabled = $('copy').disabled = false
-  watchDocument(handle)
+  branches.watch(handle)
   refresh(); status()
 } catch (error) { $('status').textContent = `Could not open document: ${error.message}` }
 window.addEventListener('hashchange', () => location.reload())

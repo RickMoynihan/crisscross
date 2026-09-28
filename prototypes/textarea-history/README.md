@@ -44,7 +44,10 @@ In History View, optionally enter a branch name and choose **Branch from here**.
 The tab switches to a new live document with its own URL. Use **Copy link** to
 invite collaborators onto that branch, with cursors and independent activity
 history. A banner identifies the branch and links to its source. Branches can
-also be branched. Explicit branch tracks are not part of this phase.
+also be branched. The selector and timeline discover related branches automatically
+for everyone sharing the document. Each branch has its own live track; edits and
+new history entries update even while you are viewing another branch or a pinned
+snapshot. Fork markers retain the exact state from which each branch was created.
 
 The branch preserves the entire snapshot on screen, including concurrent work
 represented by multiple heads, and excludes edits outside that snapshot. Original
@@ -70,4 +73,5 @@ rendered, so long editing sessions will eventually slow the history view.
 
 `npm run build` produces `public/app.js`; serve `public/` as a static site.
 `npm test` checks deterministic ordering, grouping, cumulative history states,
-text diffs, and branching from historical snapshots.
+text diffs, branching from historical snapshots, and branch discovery and live
+updates between independent users through the Automerge sync protocol.

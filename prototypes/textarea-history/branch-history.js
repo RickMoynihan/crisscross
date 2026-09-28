@@ -9,8 +9,17 @@ export function branchHistory(handles, { grouped = true, selected = null, lanes 
   for (const handle of handles) {
     const doc = handle.doc(), branch = doc.branch
     const forkHeads = branch && [...(branch.forkHeads || [branch.forkHash])]
-    const inherited = new Set(forkHeads ? A.getAllChanges(A.view(doc, forkHeads)).map(bytes => A.decodeChange(bytes).hash) : [])
     const changes = A.getAllChanges(doc).map(A.decodeChange)
+    // getAllChanges(view) includes the backing document's later changes too.
+    // Only the fork heads and their dependencies belong to inherited history.
+    const byHash = new Map(changes.map(change => [change.hash, change]))
+    const inherited = new Set(), pending = [...(forkHeads || [])]
+    while (pending.length) {
+      const hash = pending.pop()
+      if (inherited.has(hash)) continue
+      inherited.add(hash)
+      pending.push(...byHash.get(hash).deps)
+    }
     const timeline = layout(changes, { grouped: false }).nodes.toReversed()
     // Group only branch-owned activity; do not duplicate its inherited history.
     const own = timeline.filter(n => !inherited.has(n.hash))

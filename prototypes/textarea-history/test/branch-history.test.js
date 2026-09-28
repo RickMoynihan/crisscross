@@ -22,6 +22,9 @@ test('explicit tracks share ancestry, split runs at saved forks, and preserve sn
     const sibling = createBranch(repo, main, second, 'Second', 'Bob')
     const nested = createBranch(repo, branch, A.getHeads(branch.doc()), 'Nested', 'Bob')
     const { nodes, edges } = branchHistory([main, branch, sibling, nested])
+    const branchEdits = nodes.filter(n => n.type === 'edit' && n.url === branch.url)
+    assert.ok(branchEdits.some(n => n.kind === 'branch-create'))
+    assert.ok(branchEdits.some(n => !n.kind))
     assert.equal(nodes.filter(n => n.type === 'tip').length, 4)
     assert.equal(nodes.filter(n => n.type === 'fork').length, 3)
     assert.equal(new Set(nodes.filter(n => n.type === 'tip').map(n => n.lane)).size, 4)
@@ -37,6 +40,28 @@ test('explicit tracks share ancestry, split runs at saved forks, and preserve sn
     assert.ok(branchLinks(main).some(link => link.url === branch.url))
     assert.ok(branchLinks(branch).some(link => link.url === main.url))
     assert.ok(!branchLinks(sibling).some(link => link.url === branch.url))
+  } finally { await repo.shutdown() }
+})
+
+test('branch tracks grow with live edits while their fork snapshot stays fixed', async () => {
+  const repo = new Repo({ network: [] })
+  try {
+    const main = repo.create({ text: 'base' })
+    const branch = createBranch(repo, main, A.getHeads(main.doc()), 'Alternative', 'Alice')
+    const creationHash = A.getHeads(branch.doc())[0]
+    edit(branch, 'first branch edit')
+    const firstHash = A.getHeads(branch.doc())[0]
+    edit(branch, 'second branch edit')
+    const secondHash = A.getHeads(branch.doc())[0]
+    for (const grouped of [false, true]) {
+      const { nodes } = branchHistory([main, branch], { grouped })
+      const own = nodes.filter(n => n.type === 'edit' && n.url === branch.url)
+      assert.deepEqual(new Set(own.flatMap(n => n.changes.map(c => c.hash))),
+        new Set([creationHash, firstHash, secondHash]))
+      assert.equal(A.view(branch.doc(), own[0].afterHeads).text, 'second branch edit')
+      const fork = nodes.find(n => n.type === 'fork')
+      assert.equal(A.view(fork.doc, fork.afterHeads).text, 'base')
+    }
   } finally { await repo.shutdown() }
 })
 
