@@ -112,14 +112,21 @@ try {
     return state.ordered = [...state.closed].sort((a, b) => depth(b.id) - depth(a.id) || a.id.localeCompare(b.id))
   }
   function paintBadge(node, result, record) {
-    if (result.status === 'pending') { node.textContent = 'Checking review…'; return }
-    if (result.status === 'error') { node.textContent = 'Review unavailable'; return }
-    const issues = result.issues
-    node.hidden = !issues.length
-    if (issues.length) {
-      node.className = 'conflict-badge'
-      node.textContent = `${issues.some(i => i.kind === 'conflict') ? 'Conflicting' : 'Needs review'} · ${issues.length} ${issues.length === 1 ? 'issue' : 'issues'}${record.open ? '' : ' in this snapshot'}`
+    node.hidden = false
+    node.className = 'review-badge'
+    if (result.status === 'pending') {
+      // Keep the card's reserved badge row, but do not announce routine
+      // background work or change the card's height while it runs.
+      node.classList.add('pending')
+      node.textContent = 'Checking review…'
+      return
     }
+    if (result.status === 'error') { node.classList.add('error'); node.textContent = 'Review unavailable'; return }
+    const issues = result.issues
+    if (issues.length) {
+      node.classList.add('conflict-badge')
+      node.textContent = `${issues.some(i => i.kind === 'conflict') ? 'Conflicting' : 'Needs review'} · ${issues.length} ${issues.length === 1 ? 'issue' : 'issues'}${record.open ? '' : ' in this snapshot'}`
+    } else node.classList.add('empty')
   }
   const reviewObserver = new IntersectionObserver(entries => {
     for (const entry of entries) if (entry.isIntersecting && entry.target.isConnected) {
@@ -194,7 +201,7 @@ try {
           }
           card.append(parents)
         }
-        const badge = element('p', 'Checking review…', 'hint')
+        const badge = element('p', 'Checking review…', 'review-badge pending')
         reviewTargets.set(badge, { handle: docHandle, record }); reviewObserver.observe(badge)
         card.append(badge)
         const details = element('details'), summaryEl = element('summary', 'Net changes and individual edits')

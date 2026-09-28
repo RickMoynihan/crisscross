@@ -43,6 +43,9 @@ textarea { width: 100%; height: 100%; resize: none; background: transparent; col
 .parent-links { font-size: 12px; margin: 8px 0 }.parent-links button { padding: 3px 6px; margin: 2px }
 summary { cursor: pointer; font-size: 12px; padding: 4px 0 }
 .commit-card pre, #review-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 240px; overflow: auto }
+.review-badge { min-height: 1.4em; margin: 8px 0; font-size: 12px }
+.review-badge.pending, .review-badge.empty { visibility: hidden }
+.review-badge.error { color: #854514 }
 .conflict-badge, .issue { color: #854514; background: #fff2d9; padding: 8px; border-radius: 4px }
 .issue { margin: 8px 0 }
 #review-panel { border: 1px solid #b68118; padding: 16px; margin: 12px 0; background: white }
