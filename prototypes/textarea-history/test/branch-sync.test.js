@@ -118,3 +118,36 @@ test('a branch link arriving before its document recovers without a reload', asy
     await until(() => view.graph().nodes.some(n => n.type === 'edit' && n.doc.text === 'recovered live edit'))
   } finally { view.watcher.stop(); await repo.shutdown(); await offline.shutdown() }
 })
+
+test('independent users sync checkpoints and converge on the same shared open commit', async () => {
+  const { commitState, checkpoint, changeOptions } = await import('../versioning.js')
+  const left = new TestNetwork(), right = new TestNetwork()
+  left.other = right; right.other = left
+  const alice = new Repo({ network: [left] }), bob = new Repo({ network: [right] })
+  left.peerCandidate(bob.peerId); right.peerCandidate(alice.peerId)
+  try {
+    const main = alice.create({ text: 'base' }), remote = await bob.find(main.url)
+    await until(() => remote.doc()?.text === 'base')
+    // Synchronous local actions on both replicas precede asynchronous delivery.
+    const firstContext = commitState(main).open.id
+    main.change(d => A.updateText(d, ['text'], 'Alice base'), changeOptions({ author: 'Alice', userId: 'alice' }, { openCommitId: firstContext }))
+    remote.change(d => A.updateText(d, ['text'], 'base Bob'), changeOptions({ author: 'Bob', userId: 'bob' }, { openCommitId: firstContext }))
+    const first = checkpoint(main, 'Alice checkpoint', 'Alice')
+    const second = checkpoint(remote, 'Bob checkpoint', 'Bob')
+    await until(() => commitState(main).closed.length === 2 && commitState(remote).closed.length === 2)
+    assert.deepEqual(commitState(main).open.parentIds, [first.id, second.id].sort())
+    assert.equal(commitState(main).open.id, commitState(remote).open.id)
+    assert.equal(main.doc().text, remote.doc().text)
+    const nextContext = commitState(remote).open.id
+    remote.change(d => A.updateText(d, ['text'], d.text + '!'), changeOptions({ author: 'Bob', userId: 'bob' }, { openCommitId: nextContext }))
+    await until(() => commitState(main).open.edits.length === 1)
+    assert.equal(commitState(main).open.contributors[0].name, 'Bob')
+    const joined = checkpoint(main, 'Joined', 'Alice')
+    await until(() => commitState(remote).open.parentIds.length === 1 && commitState(remote).open.parentIds[0] === joined.id)
+    assert.equal(A.view(remote.doc(), first.snapshotHeads).text, 'Alice base')
+    assert.equal(A.view(remote.doc(), second.snapshotHeads).text, 'base Bob')
+    // Reload into a new actor without losing commit records or immutable membership.
+    const reloaded = bob.import(A.save(remote.doc()))
+    assert.equal(A.view(reloaded.doc(), joined.snapshotHeads).text, main.doc().text)
+  } finally { await alice.shutdown(); await bob.shutdown() }
+})

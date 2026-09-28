@@ -1,4 +1,4 @@
-import { branchLinks, registerBranch } from './branches.js'
+import { branchInfo, branchLinks, registerBranch } from './branches.js'
 
 // Keep every discovered branch subscribed, even while another branch or a
 // historical snapshot is selected. Heads also change for commits with no patches.
@@ -17,7 +17,7 @@ export function watchBranches(repo, { author, onUpdate }) {
       if (stopped) return
       for (const doc of documents.values()) discover(doc)
       for (const doc of documents.values()) {
-        const source = documents.get(doc.doc().branch?.source)
+        const source = documents.get(branchInfo(doc)?.source)
         if (source) registerBranch(source, doc, author())
       }
       onUpdate()

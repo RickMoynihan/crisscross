@@ -1,5 +1,6 @@
 import { Automerge as A } from '@automerge/automerge-repo/slim'
 import { layout, author } from './graph.js'
+import { branchInfo } from './branches.js'
 
 // Each document keeps its own linear activity. Fork badges are explicitly
 // labelled snapshots, since a saved multi-head state need not still be a prefix
@@ -7,7 +8,7 @@ import { layout, author } from './graph.js'
 export function branchHistory(handles, { grouped = true, selected = null, lanes = new Map() } = {}) {
   const records = new Map(), rows = new Map(), edges = []
   for (const handle of handles) {
-    const doc = handle.doc(), branch = doc.branch
+    const doc = handle.doc(), branch = branchInfo(handle)
     const forkHeads = branch && [...(branch.forkHeads || [branch.forkHash])]
     const changes = A.getAllChanges(doc).map(A.decodeChange)
     // getAllChanges(view) includes the backing document's later changes too.

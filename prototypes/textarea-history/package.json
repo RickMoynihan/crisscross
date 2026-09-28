@@ -4,8 +4,9 @@
   "type": "module",
   "scripts": {
     "start": "npm run build -- --servedir=public --serve=8000",
-    "build": "esbuild main.js --bundle --format=esm --target=es2022 --outfile=public/app.js",
-    "test": "node --test test/*.test.js"
+    "build": "esbuild app=main.js review-worker=review-worker.js --bundle --format=esm --target=es2022 --outdir=public",
+    "test": "node --test test/*.test.js",
+    "benchmark": "node benchmarks/versioning.mjs"
   },
   "dependencies": {
     "@automerge/automerge": "^3.5.0",

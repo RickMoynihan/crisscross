@@ -4,7 +4,10 @@ import { WebSocketClientAdapter } from '@automerge/automerge-repo-network-websoc
 import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-indexeddb'
 import { sameHeads, author, color } from './graph.js'
 import { textEdits, describeEdits } from './changes.js'
-import { createBranch } from './branches.js'
+import { branchInfo } from './branches.js'
+import { commitState, checkpoint, branchFromCommit, mergeBranch, changeOptions } from './versioning.js'
+import { currentPassage, applyResolution } from './conflicts.js'
+import { ReviewClient } from './review-client.js'
 import { watchBranches } from './branch-documents.js'
 import { branchHistory } from './branch-history.js'
 
@@ -23,7 +26,7 @@ try {
   const repo = new Repo({ network: [adapter], storage: new IndexedDBStorageAdapter('textarea-history') })
   let handle = location.hash ? await repo.find(location.hash.slice(1)) : repo.create({ text: '' })
   history.replaceState(null, '', `#${handle.url}`)
-  let paused = false, writing = false, composing = false, compositionHeads, selection = null
+  let paused = false, writing = false, composing = false, compositionHeads, compositionContext, selection = null
   const peers = new Map(), branchLanes = new Map()
   const branches = watchBranches(repo, { author: () => username(), onUpdate: () => {
     refresh()
@@ -33,6 +36,17 @@ try {
   let selectedHash = null, selectedHeads = null
   let displayed = handle.doc()
   const username = () => name.value.trim() || 'Anonymous'
+  const userId = sessionStorage.getItem('textarea-history-user-id') || crypto.randomUUID()
+  sessionStorage.setItem('textarea-history-user-id', userId)
+  const identity = () => ({ author: username(), userId })
+  let reviewSession = null, versionBusy = false, renderQueued = false
+  const reviews = new ReviewClient({ onUpdate: () => {
+    if (renderQueued) return
+    renderQueued = true
+    requestAnimationFrame(() => { renderQueued = false; if ($('individual').checked) renderIssues(); else renderGraph() })
+  } })
+  const notify = message => { $('version-status').textContent = message }
+
   const capture = () => {
     if (selectedHash) return
     selection = [text.selectionStart, text.selectionEnd].map(i => A.getCursor(displayed, ['text'], i))
@@ -68,7 +82,219 @@ try {
     if (content != null) el.textContent = content
     return el
   }
+  const element = (tag, content, className) => {
+    const node = document.createElement(tag)
+    if (content != null) node.textContent = content
+    if (className) node.className = className
+    return node
+  }
+  function action(label, callback) {
+    const button = element('button', label)
+    button.type = 'button'; button.onclick = callback
+    return button
+  }
+  function openCommitSnapshot(docHandle, record) {
+    const position = orderedClosed(commitState(docHandle)).findIndex(c => c.id === record.id)
+    if (position >= 0) historyPages.set(docHandle.url, Math.floor(position / PAGE_SIZE))
+    viewHistory({ url: docHandle.url, hash: record.id, afterHeads: record.snapshotHeads })
+  }
+  const announced = new Map(), historyPages = new Map(), reviewTargets = new WeakMap()
+  const PAGE_SIZE = 20
+  function orderedClosed(state) {
+    if (state.ordered) return state.ordered
+    const depths = new Map()
+    const depth = id => {
+      if (depths.has(id)) return depths.get(id)
+      const record = state.byId.get(id)
+      const value = record ? 1 + Math.max(0, ...record.parentIds.map(depth)) : 0
+      depths.set(id, value); return value
+    }
+    return state.ordered = [...state.closed].sort((a, b) => depth(b.id) - depth(a.id) || a.id.localeCompare(b.id))
+  }
+  function paintBadge(node, result, record) {
+    if (result.status === 'pending') { node.textContent = 'Checking review…'; return }
+    if (result.status === 'error') { node.textContent = 'Review unavailable'; return }
+    const issues = result.issues
+    node.hidden = !issues.length
+    if (issues.length) {
+      node.className = 'conflict-badge'
+      node.textContent = `${issues.some(i => i.kind === 'conflict') ? 'Conflicting' : 'Needs review'} · ${issues.length} ${issues.length === 1 ? 'issue' : 'issues'}${record.open ? '' : ' in this snapshot'}`
+    }
+  }
+  const reviewObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) if (entry.isIntersecting && entry.target.isConnected) {
+      const target = reviewTargets.get(entry.target)
+      if (!target) continue
+      const result = reviews.get(target.handle, target.record.snapshotHeads, { persist: !target.record.open, live: target.record.open })
+      paintBadge(entry.target, result, target.record)
+      if (result.status !== 'pending') reviewObserver.unobserve(entry.target)
+    }
+  }, { root: $('history'), rootMargin: '200px' })
   function renderGraph() {
+    const activity = $('individual').checked
+    graph.hidden = !activity
+    graph.style.display = activity ? 'block' : 'none'
+    $('commits').hidden = activity
+    $('heads').textContent = `${branchInfo(handle)?.name || 'Main'} · open commit`
+    if (activity) renderActivityGraph()
+    else renderCommits()
+    const chosen = $('merge-source').value
+    $('merge-source').replaceChildren(...[...documents.values()].filter(d => d.url !== handle.url).map(d => {
+      const option = element('option', `${branchInfo(d)?.name || 'Main'} · ${d.documentId.slice(0, 5)}`)
+      option.value = d.url; return option
+    }))
+    if ([...$('merge-source').options].some(o => o.value === chosen)) $('merge-source').value = chosen
+    $('merge').disabled = versionBusy || Boolean(selectedHash) || composing || !$('merge-source').options.length
+    renderIssues()
+  }
+  function renderCommits() {
+    const focused = document.activeElement?.dataset.commitFocus
+    const expanded = new Set([...$('commits').querySelectorAll('details[open][data-commit-details]')].map(n => n.dataset.commitDetails))
+    reviewObserver.disconnect()
+    $('commits').replaceChildren()
+    for (const docHandle of documents.values()) {
+      const state = commitState(docHandle), name = branchInfo(docHandle)?.name || 'Main'
+      const ids = new Set(state.closed.map(c => c.id)), previous = announced.get(docHandle.url)
+      if (previous && docHandle.url === handle.url) {
+        const fresh = state.closed.filter(c => !previous.has(c.id))
+        if (fresh.length) notify(`${fresh.at(-1).closedBy} created checkpoint “${fresh.at(-1).title}”. Editing continues in the open commit.`)
+      }
+      announced.set(docHandle.url, ids)
+      const section = element('section', null, 'branch-commits')
+      section.append(element('h3', `${name}${docHandle.url === handle.url ? ' · current branch' : ''}`))
+      const ordered = orderedClosed(state)
+      const page = Math.min(historyPages.get(docHandle.url) || 0, Math.max(0, Math.ceil(ordered.length / PAGE_SIZE) - 1))
+      historyPages.set(docHandle.url, page)
+      if (ordered.length > PAGE_SIZE) {
+        const controls = element('div', null, 'history-pages')
+        const newer = action('Newer', () => { historyPages.set(docHandle.url, page - 1); renderGraph() })
+        const older = action('Older', () => { historyPages.set(docHandle.url, page + 1); renderGraph() })
+        newer.disabled = page === 0; older.disabled = (page + 1) * PAGE_SIZE >= ordered.length
+        controls.append(newer, element('span', `${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, ordered.length)} of ${ordered.length}`), older)
+        section.append(controls)
+      }
+      for (const record of [state.open, ...ordered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)]) {
+        const card = element('article', null, `commit-card${record.open ? ' open' : ''}${selectedHash === record.id && handle.url === docHandle.url ? ' selected' : ''}`)
+        const title = action(record.open ? 'Open commit' : `${record.title} · Closed`, () => record.open ? switchBranch(docHandle.url) : openCommitSnapshot(docHandle, record))
+        title.dataset.commitFocus = `${docHandle.url}/${record.id}`
+        card.append(title)
+        const summary = record.contributors.map(p => `${p.count} ${p.count === 1 ? 'edit' : 'edits'} from ${p.name}`).join(' · ')
+        card.append(element('p', summary || (record.open ? 'No new edits yet' : 'No content edits')))
+        if (!record.open) card.append(element('p', `Checkpoint by ${record.closedBy} · ${new Date(record.closedAt).toLocaleString()}`, 'hint'))
+        if (record.lateEdits.length) card.append(element('p', `${record.lateEdits.length} edits arrived from an earlier editing context`, 'hint'))
+        if (record.parentIds.length) {
+          const parents = element('div', null, 'parent-links')
+          parents.append(element('span', record.parentIds.length > 1 ? 'Combined parents: ' : 'Parent: '))
+          for (const id of record.parentIds) {
+            const parent = state.byId.get(id)
+            if (parent) parents.append(action(parent.title, () => {
+              const owner = documents.get(parent.branchUrl) || docHandle
+              openCommitSnapshot(owner, parent)
+            }))
+          }
+          card.append(parents)
+        }
+        const badge = element('p', 'Checking review…', 'hint')
+        reviewTargets.set(badge, { handle: docHandle, record }); reviewObserver.observe(badge)
+        card.append(badge)
+        const details = element('details'), summaryEl = element('summary', 'Net changes and individual edits')
+        details.dataset.commitDetails = `${docHandle.url}/${record.id}`
+        details.append(summaryEl)
+        // Compute diffs and drill-down only when expanded.
+        details.ontoggle = () => {
+          if (!details.open || details.childElementCount > 1) return
+          details.append(element('pre', describeEdits(textEdits(state.doc, record))))
+          if (record.parentIds.length > 1) {
+            for (const id of record.parentIds) {
+              const parent = state.byId.get(id)
+              if (!parent) continue
+              details.append(element('p', `Compared with “${parent.title}”`), element('pre', describeEdits(textEdits(state.doc, { beforeHeads: parent.snapshotHeads, afterHeads: record.snapshotHeads }))))
+            }
+          }
+          for (const edit of record.edits) {
+            const item = element('details'), label = element('summary', `${author(edit)} · ${new Date(edit.time * 1000).toLocaleString()}`)
+            item.append(label, element('pre', describeEdits(textEdits(state.doc, edit))))
+            details.append(item)
+          }
+        }
+        details.open = expanded.has(details.dataset.commitDetails)
+        card.append(details); section.append(card)
+      }
+      $('commits').append(section)
+    }
+    if (focused) [...$('commits').querySelectorAll('[data-commit-focus]')].find(n => n.dataset.commitFocus === focused)?.focus({ preventScroll: true })
+  }
+  function closeReview() {
+    reviewSession = null
+    $('review-panel').hidden = true
+  }
+  function beginReview(issue, heads) {
+    if (selectedHash) return
+    if (!sameHeads(heads, A.getHeads(handle.doc()))) { notify('The passage changed. Wait for its updated review.'); return }
+    reviewSession = { issue, heads: A.getHeads(handle.doc()), url: handle.url }
+    $('review-title').textContent = issue.title
+    $('review-description').textContent = issue.kind === 'review'
+      ? `${issue.editCount} edits grouped into one passage. Choose an editor’s latest version or edit the result; one approval resolves this batch.`
+      : 'Choose a value or edit the result. Applying records a new edit and preserves history.'
+    const current = currentPassage(handle.doc(), issue), fullText = handle.doc().text || ''
+    const before = [...fullText.slice(0, current.start).split('\n').at(-1)].slice(-60).join('')
+    const after = [...fullText.slice(current.end).split('\n')[0]].slice(0, 60).join('')
+    const preview = (node, value) => node.replaceChildren(
+      element('span', before, 'review-context'), element('mark', value || '(empty)'), element('span', after, 'review-context'))
+    preview($('review-base'), issue.base)
+    preview($('review-current'), current.text)
+    $('review-result').value = current.text
+    $('review-choices').replaceChildren()
+    for (const choice of issue.choices) {
+      const container = element('div'), textPreview = element('pre')
+      preview(textPreview, choice.text)
+      container.append(textPreview, action(choice.label, () => { $('review-result').value = choice.text }))
+      $('review-choices').append(container)
+    }
+    $('review-message').textContent = ''
+    $('review-panel').hidden = false
+    $('review-result').focus()
+  }
+  let displayedIssueContext = null
+  function renderIssues() {
+    const container = $('issues')
+    const heads = selectedHeads || A.getHeads(handle.doc())
+    const result = reviews.get(handle, heads, { persist: Boolean(selectedHash && commitState(handle).byId.has(selectedHash)), live: !selectedHash })
+    const pending = result.status === 'pending'
+    $('review-progress').style.visibility = pending ? 'visible' : 'hidden'
+    const context = `${handle.url}/${selectedHash || 'live'}`
+    // Keep the last findings in place while refreshing the same view. Their
+    // actions must wait for fresh heads before opening a resolution.
+    if (!pending || context !== displayedIssueContext) container.replaceChildren()
+    displayedIssueContext = context
+    for (const button of container.querySelectorAll('button')) button.disabled = pending
+    if (result.status === 'error') {
+      container.append(element('p', `Review unavailable: ${result.error}`, 'hint'), action('Retry review', () => {
+        if (reviews.failure) location.reload(); else reviews.retry(heads)
+      }))
+    }
+    for (const issue of pending ? [] : result.issues || []) {
+      const row = element('div', null, 'issue')
+      row.append(element('span', `${issue.kind === 'conflict' ? 'Conflict' : 'Needs review'}: ${issue.title} `))
+      if (!selectedHash) row.append(action(issue.kind === 'review' ? 'Review passage' : 'Review', () => beginReview(issue, result.heads)))
+      else row.append(element('span', 'Historical snapshot — return to live to resolve.', 'hint'))
+      container.append(row)
+    }
+    if (reviewSession && (selectedHash || reviewSession.url !== handle.url)) closeReview()
+    if (reviewSession && !sameHeads(reviewSession.heads, A.getHeads(handle.doc()))) {
+      $('review-message').textContent = 'The document changed. Reopen Review to refresh the passage before applying.'
+      $('review-apply').disabled = true
+    } else $('review-apply').disabled = false
+  }
+  $('review-cancel').onclick = closeReview
+  $('review-apply').onclick = () => {
+    if (!reviewSession) return
+    try {
+      applyResolution(handle, reviewSession.issue, $('review-result').value, identity(), reviewSession.heads, commitState(handle).open.id)
+      closeReview(); refresh(); notify('Resolution recorded as a new edit.')
+    } catch (error) { $('review-message').textContent = error.message }
+  }
+  function renderActivityGraph() {
     tooltip.hidden = true
     const { nodes, edges } = branchHistory([...documents.values()], {
       grouped: !$('individual').checked, selected: selectedHash, lanes: branchLanes,
@@ -88,7 +314,7 @@ try {
     const labelX = 40 + Math.max(0, branchLanes.size - 1) * 20, width = labelX + 240
     graph.setAttribute('width', width); graph.setAttribute('height', height)
     graph.replaceChildren()
-    $('heads').textContent = `${handle.doc().branch?.name || 'Main'} · current document`
+    $('heads').textContent = `${branchInfo(handle)?.name || 'Main'} · current document`
     const byId = new Map(nodes.map(n => [n.id, n]))
     for (const edge of edges) {
       const from = byId.get(edge.from), to = byId.get(edge.to)
@@ -174,8 +400,10 @@ try {
     handle.off('ephemeral-message', receivePresence)
     handle = next
     handle.on('ephemeral-message', receivePresence)
-    selectedHash = null; selectedHeads = null; selection = null; compositionHeads = null
+    selectedHash = null; selectedHeads = null; selection = null; compositionHeads = null; compositionContext = null
+    $('commit-title').value = ''
     peers.clear()
+    closeReview()
     history.replaceState(null, '', `#${handle.url}`)
     displayed = handle.doc()
     text.value = displayed.text || ''
@@ -190,7 +418,7 @@ try {
     const options = [...documents.values()].map(doc => {
       const option = document.createElement('option')
       option.value = doc.url
-      option.textContent = `${doc.doc().branch?.name || 'Main'} · ${doc.documentId.slice(0, 5)}`
+      option.textContent = `${branchInfo(doc)?.name || 'Main'} · ${doc.documentId.slice(0, 5)}`
       return option
     })
     const existing = [...$('branch-select').options]
@@ -201,21 +429,48 @@ try {
     $('branch-status').textContent = unavailable.size ? `${unavailable.size} branch document(s) unavailable · retrying` : loading.size ? 'Loading branches…' : ''
   }
   $('branch-create').onclick = async () => {
-    if (!selectedHash || composing) return
+    if (composing || versionBusy) return
+    versionBusy = true
     const button = $('branch-create')
     button.disabled = true
     try {
-      const branch = createBranch(repo, handle, selectedHeads,
-        $('branch-name').value.trim() || `Branch ${selectedHash.slice(0, 7)}`, username())
+      const record = selectedHash ? commitState(handle).byId.get(selectedHash) : null
+      if (selectedHash && !record) throw new Error('Choose a closed commit to branch from')
+      const branch = branchFromCommit(repo, handle, record,
+        $('branch-name').value.trim() || 'Alternative', identity())
       await repo.flush([branch.documentId, handle.documentId])
       branches.watch(branch)
       activateHandle(branch)
       $('branch-name').value = ''
-      history.replaceState(null, '', `#${handle.url}`)
       refresh(); text.focus(); sendPresence()
-    } catch (error) {
-      $('status').textContent = `Could not create branch: ${error.message}`
-    } finally { button.disabled = false }
+      notify('Branch created. Collaborators remain on the source branch.')
+    } catch (error) { notify(`Could not create branch: ${error.message}`) }
+    finally { versionBusy = false; refresh() }
+  }
+  $('checkpoint').onclick = async () => {
+    if (composing || selectedHash || versionBusy) return
+    versionBusy = true; refresh()
+    try {
+      const record = checkpoint(handle, $('commit-title').value, identity())
+      $('commit-title').value = ''
+      await repo.flush([handle.documentId])
+      notify(`Created checkpoint “${record.title}”. Everyone continues in the next open commit.`)
+      refresh()
+    } catch (error) { notify(`Could not create checkpoint: ${error.message}`) }
+    finally { versionBusy = false; refresh() }
+  }
+  $('merge').onclick = async () => {
+    if (composing || selectedHash || versionBusy) return
+    versionBusy = true; refresh()
+    try {
+      const source = documents.get($('merge-source').value)
+      if (!source) return
+      const result = mergeBranch(handle, source, identity())
+      await repo.flush([handle.documentId, source.documentId])
+      notify(result ? 'Merged the captured source checkpoint into this open commit. Review the result, then create a checkpoint.' : 'All source edits are already included.')
+      refresh()
+    } catch (error) { notify(`Could not merge: ${error.message}`) }
+    finally { versionBusy = false; refresh() }
   }
   $('live').onclick = live
   $('heads').onclick = live
@@ -231,13 +486,17 @@ try {
     displayed = selectedHash ? A.view(handle.doc(), selectedHeads) : handle.doc()
     text.readOnly = Boolean(selectedHash)
     $('history-mode').hidden = !selectedHash
-    const branch = handle.doc().branch
+    const branch = branchInfo(handle)
     $('branch-info').hidden = !branch
     if (branch) {
       $('branch-label').textContent = `Branch: ${branch.name} · from ${branch.forkHash.slice(0, 7)}`
       $('branch-source').href = `#${branch.source}`
     }
-    $('mode-detail').textContent = selectedHash ? `Read-only · pinned activity snapshot · Escape returns to live` : ''
+    $('mode-detail').textContent = selectedHash ? `Read-only · pinned snapshot · Escape returns to live` : ''
+    $('checkpoint').disabled = versionBusy || Boolean(selectedHash) || composing
+    $('commit-title').disabled = Boolean(selectedHash)
+    $('branch-create').textContent = selectedHash ? 'Branch from checkpoint' : 'Checkpoint and branch…'
+    $('branch-create').disabled = versionBusy || composing || Boolean(selectedHash && !commitState(handle).byId.has(selectedHash))
     const direction = text.selectionDirection
     text.value = displayed.text || ''
     if (!selectedHash && selection) {
@@ -249,7 +508,7 @@ try {
     if (composing || selectedHash) return
     writing = true
     const value = text.value, start = text.selectionStart, end = text.selectionEnd
-    const options = { message: JSON.stringify({ author: username() }), time: Math.floor(Date.now() / 1000) }
+    const options = changeOptions(identity(), { kind: 'edit', openCommitId: compositionContext || commitState(handle).open.id })
     try {
       if (compositionHeads) {
         // Apply composition to the version it started from, preserving intervening remote edits.
@@ -258,7 +517,7 @@ try {
           const local = handle.view(heads).doc()
           selection = [start, end].map(i => A.getCursor(local, ['text'], i))
         }
-        compositionHeads = null
+        compositionHeads = null; compositionContext = null
       } else {
         handle.change(d => A.updateText(d, ['text'], value), options)
         displayed = handle.doc()
@@ -268,7 +527,7 @@ try {
     refresh(); sendPresence()
   }
   text.oninput = edit
-  text.addEventListener('compositionstart', () => { if (selectedHash) return; composing = true; compositionHeads = handle.heads() })
+  text.addEventListener('compositionstart', () => { if (selectedHash) return; composing = true; compositionHeads = handle.heads(); compositionContext = commitState(handle).open.id })
   text.addEventListener('compositionend', () => { composing = false; edit() })
   text.addEventListener('select', () => { if (!composing) { capture(); sendPresence() } })
   for (const event of ['keyup', 'click', 'focus', 'blur']) text.addEventListener(event, () => { if (!composing) { capture(); sendPresence() } })

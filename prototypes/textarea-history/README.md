@@ -1,4 +1,4 @@
-# Automerge textarea + activity history
+# Automerge textarea + shared commit history
 
 ```sh
 npm ci
@@ -7,10 +7,36 @@ npm start
 
 Open http://localhost:8000 and copy the full URL into another tab or browser.
 Enter a name at the top left. The native textarea shows collaborators' coloured
-carets; the compact activity timeline alongside it groups consecutive edits.
-Hover or keyboard-focus an entry for net text edits, timestamps, author/actor ID,
-and sequence. Runs show start/end timestamps and a sequence range. Quoted text
-makes spaces, newlines, and tabs visible.
+carets. Everyone on a branch shares an **open commit**, with contributions summarized
+as “32 edits from John · 24 edits from Alice”. **Create checkpoint** freezes the
+received state and starts the next shared open commit. Expand a card for net changes
+and individual edits, or enable **Show activity timeline** for the original view.
+
+This is a **candidate versioning model**, inspired by Jujutsu and adapted for
+Automerge. [Read the model, concurrency rules, implementation, and limitations](docs/candidate-versioning-model.md).
+
+## Checkpoints, branches, and review
+
+Give a checkpoint an optional title, then choose **Create checkpoint**. Closed
+commits are immutable snapshots; clicking one makes the textarea read-only.
+Late offline edits enter the next open commit. Simultaneous checkpoints both
+survive, and their shared open successor has both as parents.
+
+Use **Checkpoint and branch…** from live editing, or **Branch from checkpoint**
+from a closed card. Only the initiating user switches branches. Select another
+branch and choose **Merge into current branch** to merge fixed source/target
+checkpoints into the target's open commit. Review and checkpoint the result.
+
+Overlapping concurrent text edits are batched into passage reviews, with completed
+versions from each editor instead of individual character approvals. They show
+**Needs review**. Actual competing property
+values show **Conflict**. **Review** displays the base, alternatives, current passage,
+and an editable result. Applying a choice records a new edit; it never rewrites a
+closed snapshot. The text detector is a conservative overlap heuristic, not a
+semantic conflict detector. A stale review panel must be reopened before applying.
+Review runs in a background worker; “Checking…” means the result is pending.
+Closed review results are cached across reloads. History uses pages of 20 closed
+commits per branch and analyzes historical badges near the visible viewport.
 
 ## Activity history
 
@@ -20,19 +46,17 @@ consistently by timestamp, actor ID, sequence, and hash. This is an activity ord
 not an exact chronology: clocks can differ, and late changes can be inserted into
 earlier activity. No changes are rewritten and no synthetic joins are created.
 
-Adjacent changes from the same actor and author form a run when no more than two
-seconds separates edits. Each entry captures the cumulative state through that
-point, represented internally by a set of Automerge heads. Its tooltip compares
-that state with the preceding entry, so concurrent contributions accumulate
-instead of disappearing when stepping through different authors' edits. Toggle
-**Individual changes** to see each change separately. User labels and colours
-identify activity without separate tracks or multiple-head indicators.
+Enable **Show activity timeline** to inspect individual Automerge changes. Each
+entry captures the cumulative state through that point as a set of heads. Its
+tooltip compares that state with the preceding entry, so concurrent contributions
+accumulate instead of disappearing when stepping through different authors' edits.
+Named tracks identify branches; labels and colours identify authors.
 
 Click an entry (or press Enter/Space while focused) to enter **History View**.
 The textarea becomes read-only. Its captured state stays fixed even if incoming
 changes reorder or regroup the timeline. An entry is highlighted only when its
 current cumulative state matches the captured snapshot. Remote carets are hidden.
-Press **Escape**, **Return to live**, or the sticky **Current document** button to
+Press **Escape**, **Return to live**, or the sticky live-document button to
 return to the full live state. Viewing history never changes the shared document.
 
 To demonstrate concurrency, open the same document twice, pause sync in one tab,
@@ -40,7 +64,7 @@ edit in both, then resume. Both contributions appear on the same activity timeli
 
 ## Branching from history
 
-In History View, optionally enter a branch name and choose **Branch from here**.
+Select a closed commit, optionally enter a branch name, and choose **Branch from checkpoint**.
 The tab switches to a new live document with its own URL. Use **Copy link** to
 invite collaborators onto that branch, with cursors and independent activity
 history. A banner identifies the branch and links to its source. Branches can
@@ -53,9 +77,9 @@ changes alter the source timeline.
 
 The branch preserves the entire snapshot on screen, including concurrent work
 represented by multiple heads, and excludes edits outside that snapshot. Original
-change hashes and authors are retained. Creation adds one metadata-only change
-recording the branch name, source URL, and fork heads. Source and branch edits
-stay independent. Reloading preserves the branch and its origin. If sync is paused,
+change hashes and authors are retained. Creation adds metadata recording the branch
+name, source URL, fork heads, and parent checkpoint. Head branching first closes
+the received source state. Source and branch edits stay independent. Reloading preserves the branch and its origin. If sync is paused,
 resume it to make the branch available to other browsers.
 
 ## Storage and syncing
@@ -70,10 +94,13 @@ recorded in change messages, so renaming affects future edits only.
 Presence uses Automerge cursors and ephemeral messages, refreshed every three
 seconds and expired after twelve seconds. It does not enter document history.
 Connection status describes the relay connection, not acknowledgement by every
-peer. Anyone with a document URL can read and edit it. The complete history is
-rendered, so long editing sessions will eventually slow the history view.
+peer. Anyone with a document URL can read and edit it. All edits remain stored. The commit view uses incremental summaries, cached
+snapshots, and bounded pages; the optional activity timeline still examines the
+full history. [Performance measurements and storage tradeoffs](docs/performance.md).
 
-`npm run build` produces `public/app.js`; serve `public/` as a static site.
-`npm test` checks deterministic ordering, grouping, cumulative history states,
-text diffs, branching from historical snapshots, and branch discovery and live
+`npm run build` produces `public/app.js` and `public/review-worker.js`; deploy both
+and serve `public/` as a static site. `npm run benchmark` measures cold, cached, and
+incremental analysis plus branch-storage duplication.
+`npm test` checks the candidate commit model, conflicts and resolutions, deterministic
+ordering, grouping, cumulative history states, text diffs, branching from historical snapshots, and branch discovery and live
 updates between independent users through the Automerge sync protocol.
