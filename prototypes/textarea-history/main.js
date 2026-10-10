@@ -142,7 +142,7 @@ try {
     graph.style.display = 'block'
     $('commits').hidden = true
     $('heads').textContent = `${branchInfo(handle)?.name || 'Main'} · open commit`
-    renderActivityGraph()
+    renderCommitTrainlines()
     const chosen = $('merge-source').value
     $('merge-source').replaceChildren(...[...documents.values()].filter(d => d.url !== handle.url).map(d => {
       const option = element('option', `${branchInfo(d)?.name || 'Main'} · ${d.documentId.slice(0, 5)}`)
@@ -398,7 +398,7 @@ try {
   }
   function renderActivityGraph() {
     tooltip.hidden = true
-    if (!$('individual').checked) return renderCommitTrainlines()
+    return renderCommitTrainlines()
     const { nodes, edges } = branchHistory([...documents.values()], {
       grouped: false, selected: selectedHash, lanes: branchLanes,
     })
@@ -564,7 +564,6 @@ try {
   }
   $('live').onclick = live
   $('heads').onclick = live
-  $('individual').onchange = renderGraph
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       tooltip.hidden = true
