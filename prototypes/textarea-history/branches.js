@@ -6,6 +6,14 @@ export function branchInfo(handle) {
   return scoped ? (scoped.source ? scoped : null) : handle.doc().branch
 }
 
+export function branchName(handle) {
+  return handle.doc()[`branch-name:${handle.url}`] || branchInfo(handle)?.name || 'Main'
+}
+
+export function branchRemoved(handle) {
+  return Boolean(handle.doc()[`branch-removed:${handle.url}`])
+}
+
 export function createBranch(repo, source, point, name, author, checkpoint = null) {
   const heads = typeof point === 'string' ? [point] : [...point]
   const branch = repo.clone(source.view(encodeHeads(heads)))
@@ -28,6 +36,33 @@ export function branchLinks(handle) {
     }
   }
   return links
+}
+
+export function renameBranch(handle, name, author) {
+  const next = name.trim()
+  if (!next) return
+  handle.change(doc => {
+    doc[`branch-name:${handle.url}`] = next
+    if (doc.branch) doc.branch = { ...doc.branch, name: next }
+    const key = `branch-info:${handle.url}`
+    if (doc[key]) doc[key] = { ...doc[key], name: next }
+  }, { message: JSON.stringify({ author, kind: 'branch-rename' }), time: Math.floor(Date.now() / 1000) })
+}
+
+export function renameBranchLink(source, branchUrl, name, author) {
+  const key = `branch:${branchUrl}`
+  if (!source.doc()[key]) return
+  source.change(doc => { doc[key] = { ...doc[key], name } }, { message: JSON.stringify({ author, kind: 'branch-rename-link' }), time: Math.floor(Date.now() / 1000) })
+}
+
+export function removeBranchLink(source, branchUrl, author) {
+  const key = `branch:${branchUrl}`
+  if (!source.doc()[key]) return
+  source.change(doc => { delete doc[key] }, { message: JSON.stringify({ author, kind: 'branch-remove' }), time: Math.floor(Date.now() / 1000) })
+}
+
+export function removeBranchOpenCommit(handle, author) {
+  handle.change(doc => { doc[`branch-removed:${handle.url}`] = true }, { message: JSON.stringify({ author, kind: 'branch-remove-open' }), time: Math.floor(Date.now() / 1000) })
 }
 
 export function registerBranch(source, branch, author) {

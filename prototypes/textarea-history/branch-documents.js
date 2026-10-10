@@ -48,8 +48,20 @@ export function watchBranches(repo, { author, onUpdate }) {
     }
   }
 
+  function unwatch(url) {
+    const doc = documents.get(url)
+    if (!doc) return
+    const listener = listeners.get(doc)
+    if (listener) doc.off('heads-changed', listener)
+    listeners.delete(doc)
+    documents.delete(url)
+    loading.delete(url)
+    unavailable.delete(url)
+    schedule()
+  }
+
   return {
-    documents, loading, unavailable, watch,
+    documents, loading, unavailable, watch, unwatch,
     retry() {
       let retry = false
       for (const [url, time] of unavailable) {

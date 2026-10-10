@@ -9,7 +9,7 @@ header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; fle
 input, button, select { font: inherit; padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; background: white }
 input { width: 150px } button { cursor: pointer } #status, .hint { color: #65717b; font-size: 12px }
 main > section { min-width: 0 }
-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(330px, 430px); gap: 24px } h2 { font-size: 14px; font-weight: 600; margin: 0 0 10px }
+main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(330px, 430px) 0; gap: 24px; transition: grid-template-columns 220ms ease } main.detail-open { grid-template-columns: minmax(0, .9fr) minmax(300px, 380px) minmax(280px, 360px) } h2 { font-size: 14px; font-weight: 600; margin: 0 0 10px }
 #editor { position: relative; height: 65vh; min-height: 240px; overflow: hidden; border: 1px solid #ccc; border-radius: 4px; background: white }
 #editor.history { border-color: #b68118; box-shadow: 0 0 0 2px #fff0c2 }
 textarea, #mirror { margin: 0; padding: 14px; border: 0; font: 16px/24px monospace; tab-size: 4; white-space: pre-wrap; overflow-wrap: break-word; letter-spacing: normal }
@@ -19,6 +19,17 @@ textarea { width: 100%; height: 100%; resize: none; background: transparent; col
 .caret { position: absolute; width: 2px; height: 24px; background: var(--color) }
 .caret span { position: absolute; top: -13px; left: 0; padding: 0 3px; font: 10px/13px system-ui; background: var(--color); color: white; white-space: nowrap; max-width: 130px; overflow: hidden }
 #history { height: 65vh; overflow: auto } svg { display: block } svg text { font: 12px system-ui; fill: #52606d } svg g { cursor: pointer } svg g:focus { outline: none } svg g:focus circle, svg g:focus rect { stroke: #111; stroke-width: 3 }
+svg g.drag-source rect { fill: #e9eef3; stroke: #52606d; stroke-width: 2; stroke-dasharray: 4 3 }
+svg g.drop-target rect { fill: #dff4ea; stroke: #34745b; stroke-width: 3 }
+#commit-detail { min-width: 0; height: 65vh; overflow: auto; opacity: 0; transform: translateX(16px); pointer-events: none; transition: opacity 180ms ease, transform 220ms ease }
+main.detail-open #commit-detail { opacity: 1; transform: translateX(0); pointer-events: auto }
+#commit-detail-panel { padding: 14px; border: 1px solid #ccd2d8; border-radius: 6px; background: white }
+#commit-detail-panel h3 { margin: 0 0 8px; font-size: 15px } #commit-detail-panel p { margin: 8px 0; font-size: 12px } #commit-detail-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 220px; overflow: auto }
+.patch { max-height: 260px; overflow: auto; border: 1px solid #d8dee4; border-radius: 5px; background: #f6f8fa; font: 12px/1.45 monospace }
+.patch-line { display: grid; grid-template-columns: 22px minmax(0, 1fr); white-space: pre-wrap; overflow-wrap: anywhere; padding: 2px 8px }
+.patch-line.inserted { background: #dafbe1; color: #1f5f2f }
+.patch-line.deleted { background: #ffebe9; color: #8c1d18 }
+.patch-sign { user-select: none; font-weight: 700 }
 #current { position: sticky; top: 0; z-index: 1; background: #fafaf8; padding: 8px 0; border-bottom: 1px solid #ddd }
 #history-mode { position: absolute; top: 10px; right: 10px; z-index: 1; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 20px); padding: 7px 9px; background: #fff0c2ee; border: 1px solid #b68118; border-radius: 999px; box-shadow: 0 2px 8px #0001; font-size: 12px }
 #history-mode strong, #history-mode span { white-space: nowrap } #history-mode button { padding: 3px 7px }
@@ -51,14 +62,14 @@ summary { cursor: pointer; font-size: 12px; padding: 4px 0 }
 #review-choices { display: flex; gap: 16px; flex-wrap: wrap }
 #review-choices > div { flex: 1; min-width: 180px }
 #tooltip { position: fixed; z-index: 2; max-width: min(580px, 95vw); max-height: 70vh; overflow: auto; padding: 12px; border: 1px solid #bbc2c9; border-radius: 5px; background: white; box-shadow: 0 4px 20px #0002; font: 12px/1.5 monospace; white-space: pre-wrap; overflow-wrap: anywhere; pointer-events: none }
-@media(max-width: 700px) { main { grid-template-columns: 1fr } }
+@media(max-width: 900px) { main, main.detail-open { grid-template-columns: 1fr } #commit-detail { height: auto; opacity: 1; transform: none; pointer-events: auto } }
 </style>
 <header>
 <label>Name <input id="name" maxlength="60" placeholder="Anonymous" autocomplete="off"></label>
 <button id="pause" disabled>Pause sync</button><button id="copy" disabled>Copy link</button>
 <span id="status" role="status">Loading…</span>
 </header>
-<div id="version-actions">
+<div id="version-actions" hidden>
 <select id="merge-source" aria-label="Branch to merge"></select><button id="merge">Merge into current branch</button>
 </div>
 <p id="version-status" role="status"></p>
@@ -69,9 +80,10 @@ summary { cursor: pointer; font-size: 12px; padding: 4px 0 }
 <div id="review-choices"></div><p class="hint">Surrounding text is shown for context. Only the highlighted passage is replaced.</p><label for="review-result">Result — edit or choose a version above</label><textarea id="review-result" spellcheck="false"></textarea>
 <button id="review-apply">Apply resolution</button><button id="review-cancel">Cancel</button><p id="review-message" role="status"></p>
 </section>
-<main>
+<main id="workspace">
 <section><h2 id="text-heading">Text <span id="review-progress" class="hint">Checking for overlapping edits…</span></h2><div id="editor"><textarea id="text" aria-label="Shared text" spellcheck="false" disabled></textarea><pre id="mirror" aria-hidden="true"></pre><div id="cursors" aria-hidden="true"></div><div id="history-mode" role="status" hidden><strong>Viewing snapshot</strong><span id="mode-detail"></span><button id="live">Return to live</button></div></div><p class="hint">Open the same link in another tab. Pause sync, edit both, then resume to combine their edits.</p></section>
 <section><h2>History <span class="hint">Candidate versioning model</span></h2><div id="history"><div id="current"><select id="branch-select" aria-label="Active branch"></select><span id="branch-status" role="status"></span></div><div id="commits" hidden></div><svg id="graph" role="group" aria-label="Explicit branches and commit timeline"></svg></div><p class="hint">Double-click an open commit to name and checkpoint it; double-click a checkpoint name to edit it. Everyone on a branch shares its open commit.</p></section>
+<section id="commit-detail" aria-label="Commit details"><div id="commit-detail-panel"></div></section>
 </main>
 <div id="tooltip" role="tooltip" hidden></div>
 <script type="module" src="./app.js"></script>

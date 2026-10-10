@@ -4,8 +4,8 @@ import { WebSocketClientAdapter } from '@automerge/automerge-repo-network-websoc
 import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-indexeddb'
 import { sameHeads, author, color } from './graph.js'
 import { textEdits, describeEdits } from './changes.js'
-import { branchInfo } from './branches.js'
-import { commitState, checkpoint, renameCommit, branchFromCommit, mergeBranch, changeOptions } from './versioning.js'
+import { branchInfo, branchName, branchRemoved, renameBranch, renameBranchLink, removeBranchOpenCommit } from './branches.js'
+import { commitState, checkpoint, renameCommit, branchFromCommit, mergeBranch, mergeCommit, changeOptions } from './versioning.js'
 import { currentPassage, applyResolution } from './conflicts.js'
 import { ReviewClient } from './review-client.js'
 import { watchBranches } from './branch-documents.js'
@@ -39,7 +39,8 @@ try {
   const userId = sessionStorage.getItem('textarea-history-user-id') || crypto.randomUUID()
   sessionStorage.setItem('textarea-history-user-id', userId)
   const identity = () => ({ author: username(), userId })
-  let reviewSession = null, versionBusy = false, renderQueued = false, commitClickTimer = null
+  let reviewSession = null, versionBusy = false, renderQueued = false, commitClickTimer = null, draggedCommitNode = null
+  let pointerCommitDrag = null, suppressCommitClick = false, visibleCommitNodes = new Map(), dragTargetNodeId = null
   const reviews = new ReviewClient({ onUpdate: () => {
     if (renderQueued) return
     renderQueued = true
@@ -93,6 +94,17 @@ try {
     button.type = 'button'; button.onclick = callback
     return button
   }
+  function setCommitDragHighlight(sourceId, targetId = null) {
+    for (const group of graph.querySelectorAll('g[data-node-id]')) {
+      group.classList.toggle('drag-source', group.dataset.nodeId === sourceId)
+      group.classList.toggle('drop-target', Boolean(targetId) && group.dataset.nodeId === targetId)
+    }
+    dragTargetNodeId = targetId
+  }
+  function clearCommitDragHighlight() {
+    for (const group of graph.querySelectorAll('g.drag-source, g.drop-target')) group.classList.remove('drag-source', 'drop-target')
+    dragTargetNodeId = null
+  }
   function openCommitSnapshot(docHandle, record) {
     const position = orderedClosed(commitState(docHandle)).findIndex(c => c.id === record.id)
     if (position >= 0) historyPages.set(docHandle.url, Math.floor(position / PAGE_SIZE))
@@ -144,7 +156,7 @@ try {
     renderCommitTrainlines()
     const chosen = $('merge-source').value
     $('merge-source').replaceChildren(...[...documents.values()].filter(d => d.url !== handle.url).map(d => {
-      const option = element('option', `${branchInfo(d)?.name || 'Main'} · ${d.documentId.slice(0, 5)}`)
+      const option = element('option', `${branchName(d)} · ${d.documentId.slice(0, 5)}`)
       option.value = d.url; return option
     }))
     if ([...$('merge-source').options].some(o => o.value === chosen)) $('merge-source').value = chosen
@@ -157,7 +169,7 @@ try {
     reviewObserver.disconnect()
     $('commits').replaceChildren()
     for (const docHandle of documents.values()) {
-      const state = commitState(docHandle), name = branchInfo(docHandle)?.name || 'Main'
+      const state = commitState(docHandle), name = branchName(docHandle)
       const ids = new Set(state.closed.map(c => c.id)), previous = announced.get(docHandle.url)
       if (previous && docHandle.url === handle.url) {
         const fresh = state.closed.filter(c => !previous.has(c.id))
@@ -260,6 +272,54 @@ try {
     $('review-result').focus()
   }
   let displayedIssueContext = null
+  function patchView(edits) {
+    const patch = element('div', null, 'patch')
+    if (!edits.length) {
+      patch.append(element('div', ' No text changes', 'patch-line'))
+      return patch
+    }
+    for (const edit of edits) {
+      const line = element('div', null, `patch-line ${edit.kind}`)
+      const sign = element('span', edit.kind === 'inserted' ? '+' : '−', 'patch-sign')
+      const textNode = element('span', edit.text || '(empty)')
+      line.append(sign, textNode)
+      patch.append(line)
+    }
+    return patch
+  }
+  function renderCommitDetail() {
+    const workspace = $('workspace'), panel = $('commit-detail-panel')
+    const state = commitState(handle)
+    const record = selectedHash ? state.closed.find(commit => commit.id === selectedHash) : null
+    workspace.classList.toggle('detail-open', Boolean(record))
+    panel.replaceChildren()
+    if (!record) return
+    const title = element('h3', record.title || 'Checkpoint')
+    const branch = element('p', `${branchName(handle)} · closed commit`, 'hint')
+    const meta = element('dl')
+    const addMeta = (name, value) => {
+      const dt = element('dt', name), dd = element('dd', value)
+      meta.append(dt, dd)
+    }
+    addMeta('Checkpoint by', record.closedBy || 'Unknown')
+    addMeta('Closed', record.closedAt ? new Date(record.closedAt).toLocaleString() : 'Unknown')
+    addMeta('Edits', `${record.edits?.length || 0}`)
+    addMeta('Contributors', record.contributors?.map(p => `${p.name} (${p.count})`).join(', ') || 'None')
+    if (record.parentIds.length) addMeta('Parents', record.parentIds.map(id => state.byId.get(id)?.title || id.slice(0, 7)).join(', '))
+    const diffTitle = element('h4', 'Introduced changes')
+    panel.append(title, branch, meta, diffTitle, patchView(textEdits(state.doc, record)))
+    if (record.parentIds.length > 1) {
+      panel.append(element('h4', 'Compared with each parent'))
+      for (const id of record.parentIds) {
+        const parent = state.byId.get(id)
+        if (!parent) continue
+        panel.append(element('p', `Compared with “${parent.title}”`, 'hint'),
+          patchView(textEdits(state.doc, { beforeHeads: parent.snapshotHeads, afterHeads: record.snapshotHeads })))
+      }
+    }
+    if (record.lateEdits?.length) panel.append(element('p', `${record.lateEdits.length} edits arrived from an earlier editing context`, 'hint'))
+    panel.append(action('Return to live', live))
+  }
   function renderIssues() {
     const container = $('issues')
     const heads = selectedHeads || A.getHeads(handle.doc())
@@ -302,12 +362,12 @@ try {
     const nodes = [], edges = [], byId = new Map()
     for (const docHandle of documents.values()) {
       if (!branchLanes.has(docHandle.url)) branchLanes.set(docHandle.url, branchLanes.size)
-      const state = commitState(docHandle), branchName = branchInfo(docHandle)?.name || 'Main'
+      const state = commitState(docHandle), name = branchName(docHandle)
       const lane = branchLanes.get(docHandle.url)
-      const records = [state.open, ...state.closed]
+      const records = branchRemoved(docHandle) ? state.closed : [state.open, ...state.closed]
       for (const record of records) {
         const id = `${docHandle.url}/${record.id}`
-        const node = { ...record, nodeId: id, url: docHandle.url, handle: docHandle, doc: state.doc, lane, branchName,
+        const node = { ...record, nodeId: id, url: docHandle.url, handle: docHandle, doc: state.doc, lane, branchName: name,
           time: record.open ? Number.MAX_SAFE_INTEGER : record.closedAt || 0 }
         nodes.push(node); byId.set(record.id, node)
       }
@@ -318,6 +378,7 @@ try {
     }
     nodes.sort((a, b) => b.time - a.time || a.branchName.localeCompare(b.branchName) || a.id.localeCompare(b.id))
     nodes.forEach((node, row) => { node.row = row })
+    visibleCommitNodes = new Map(nodes.map(n => [n.nodeId, n]))
     const byNodeId = new Map(nodes.map(n => [n.nodeId, n]))
     const x = n => 20 + n.lane * 22, y = n => 24 + n.row * 42
     const labelX = 44 + Math.max(0, branchLanes.size - 1) * 22, width = labelX + 320
@@ -336,14 +397,15 @@ try {
       const contributors = node.contributors.map(p => `${p.count} ${p.count === 1 ? 'edit' : 'edits'} from ${p.name}`).join(' · ')
       const label = node.open ? `${node.branchName} · open commit` : `${node.branchName} · ${node.title}`
       const sublabel = contributors || (node.open ? 'No new edits yet' : 'No content edits')
-      const group = svg('g', { tabindex: 0, role: 'button', 'aria-pressed': String(selected), 'data-commit': node.id, 'data-document': node.url,
-        'aria-label': `${label}\n${sublabel}` })
+      const group = svg('g', { tabindex: 0, role: 'button', draggable: 'true', 'aria-pressed': String(selected), 'data-commit': node.id, 'data-node-id': node.nodeId, 'data-document': node.url,
+        style: 'cursor: grab', 'aria-label': `${label}\n${sublabel}` })
       group.append(svg('rect', { x: 4, y: y(node) - 17, width: width - 8, height: 34, rx: 5,
         fill: selected ? '#fff0c2' : node.open && node.url === handle.url ? '#e9eef3' : 'transparent', stroke: selected ? '#b68118' : 'none' }))
       group.append(svg('circle', { cx: x(node), cy: y(node), r: node.open ? 8 : 5, fill: node.open ? 'white' : color(node.url), stroke: color(node.url), 'stroke-width': 2 }))
       group.append(svg('text', { x: labelX, y: y(node) - 2 }, label.length > 36 ? label.slice(0, 35) + '…' : label))
       group.append(svg('text', { x: labelX, y: y(node) + 13 }, sublabel.length > 42 ? sublabel.slice(0, 41) + '…' : sublabel))
       const branchLink = svg('text', { x: width - 76, y: y(node) + 4, fill: '#34745b', style: 'opacity:0; cursor:pointer; font-weight:600' }, '+ branch')
+      branchLink.onpointerdown = event => event.stopPropagation()
       branchLink.onclick = event => { event.preventDefault(); event.stopPropagation(); createBranchFromCommitNode(node) }
       branchLink.ondblclick = event => { event.preventDefault(); event.stopPropagation() }
       group.append(branchLink)
@@ -392,11 +454,37 @@ try {
         input.onblur = () => save(true)
       }
       group.onclick = () => {
+        if (suppressCommitClick) return
         clearTimeout(commitClickTimer)
         commitClickTimer = setTimeout(activate, 180)
       }
       group.ondblclick = event => {
         event.preventDefault(); event.stopPropagation(); clearTimeout(commitClickTimer); editName()
+      }
+      group.onpointerdown = event => {
+        if (event.button !== 0) return
+        pointerCommitDrag = { node, startX: event.clientX, startY: event.clientY, dragging: false }
+        event.preventDefault()
+      }
+      group.ondragstart = event => {
+        draggedCommitNode = node
+        event.dataTransfer.effectAllowed = 'copyMove'
+        event.dataTransfer.setData('text/plain', node.nodeId)
+        setCommitDragHighlight(node.nodeId)
+      }
+      group.ondragover = event => {
+        if (draggedCommitNode && draggedCommitNode.nodeId !== node.nodeId) {
+          event.preventDefault(); event.dataTransfer.dropEffect = 'copyMove'; showBranchLink()
+          setCommitDragHighlight(draggedCommitNode.nodeId, node.nodeId)
+        }
+      }
+      group.ondragleave = () => { if (draggedCommitNode && dragTargetNodeId === node.nodeId) setCommitDragHighlight(draggedCommitNode.nodeId) }
+      group.ondragend = () => { draggedCommitNode = null; clearCommitDragHighlight(); hideBranchLink() }
+      group.ondrop = event => {
+        event.preventDefault(); event.stopPropagation()
+        const source = draggedCommitNode
+        draggedCommitNode = null; clearCommitDragHighlight(); hideBranchLink()
+        if (source && source.nodeId !== node.nodeId) mergeCommitNodes(source, node)
       }
       group.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate() }; if (e.key === 'F2') { e.preventDefault(); editName() } }
       graph.append(group)
@@ -520,16 +608,61 @@ try {
     activateHandle(documents.get(url))
     refresh(); text.focus(); sendPresence()
   }
-  $('branch-select').onchange = event => switchBranch(event.target.value)
+  $('branch-select').onchange = event => {
+    const value = event.target.value
+    if (value === '__rename') return renameCurrentBranch()
+    if (value === '__remove') return removeCurrentBranch()
+    switchBranch(value)
+  }
+  async function renameCurrentBranch() {
+    $('branch-select').value = handle.url
+    if (versionBusy) return
+    const previous = branchName(handle)
+    const next = prompt('Branch name', previous)?.trim()
+    if (!next || next === previous) return
+    versionBusy = true; refresh()
+    try {
+      renameBranch(handle, next, username())
+      for (const doc of documents.values()) renameBranchLink(doc, handle.url, next, username())
+      await repo.flush([...documents.values()].map(doc => doc.documentId))
+      notify(`Renamed branch to “${next}”.`)
+    } catch (error) { notify(`Could not rename branch: ${error.message}`) }
+    finally { versionBusy = false; refresh() }
+  }
+  async function removeCurrentBranch() {
+    $('branch-select').value = handle.url
+    if (versionBusy) return
+    const activeBranches = [...documents.values()].filter(doc => !branchRemoved(doc))
+    if (activeBranches.length <= 1) { notify('Cannot remove the last branch.'); return }
+    const doomed = handle, replacement = activeBranches.find(doc => doc.url !== doomed.url)
+    if (!confirm(`Remove open commit for branch “${branchName(doomed)}”? Its merges and checkpoint history will remain visible.`)) return
+    versionBusy = true; refresh()
+    try {
+      removeBranchOpenCommit(doomed, username())
+      activateHandle(replacement)
+      await repo.flush([doomed.documentId])
+      notify('Branch open commit removed; history remains visible.')
+    } catch (error) { notify(`Could not remove branch: ${error.message}`) }
+    finally { versionBusy = false; refresh() }
+  }
   function updateBranchSelect() {
-    const options = [...documents.values()].map(doc => {
+    const activeBranches = [...documents.values()].filter(doc => !branchRemoved(doc))
+    const options = activeBranches.map(doc => {
       const option = document.createElement('option')
       option.value = doc.url
-      option.textContent = `${branchInfo(doc)?.name || 'Main'} · open commit`
+      option.textContent = `${branchName(doc)} · open commit`
       return option
     })
+    const separator = document.createElement('option')
+    separator.disabled = true; separator.textContent = '──────────'
+    const rename = document.createElement('option')
+    rename.value = '__rename'; rename.textContent = 'Rename branch…'
+    const remove = document.createElement('option')
+    remove.value = '__remove'; remove.textContent = activeBranches.length <= 1 ? 'Remove branch unavailable — last branch' : 'Remove branch…'
+    remove.disabled = activeBranches.length <= 1
+    options.push(separator, rename, remove)
     const existing = [...$('branch-select').options]
-    if (existing.length !== options.length || existing.some((option, i) => option.value !== options[i].value || option.textContent !== options[i].textContent)) {
+    if (existing.length !== options.length || existing.some((option, i) => option.value !== options[i].value || option.textContent !== options[i].textContent || option.disabled !== options[i].disabled)) {
       $('branch-select').replaceChildren(...options)
     }
     $('branch-select').value = handle.url
@@ -552,6 +685,32 @@ try {
     } catch (error) { notify(`Could not create branch: ${error.message}`) }
     finally { versionBusy = false; refresh() }
   }
+  const cleanCommitRecord = node => node.open ? null : commitState(node.handle).byId.get(node.id)
+  async function mergeCommitNodes(source, target) {
+    if (composing || versionBusy || source.nodeId === target.nodeId) return
+    versionBusy = true; refresh()
+    try {
+      const sourceRecord = cleanCommitRecord(source)
+      if (!source.open && !sourceRecord) throw new Error('Choose a closed source commit')
+      let targetHandle = target.handle, flushIds = [source.handle.documentId, target.handle.documentId]
+      if (!target.open) {
+        const targetRecord = cleanCommitRecord(target)
+        if (!targetRecord) throw new Error('Choose a closed target commit')
+        const defaultName = `Merge ${source.branchName} into ${target.branchName}`
+        const name = prompt(source.open ? 'New branch name for merge' : 'Both commits are closed. New branch name for merge', defaultName)?.trim()
+        if (!name) return
+        targetHandle = branchFromCommit(repo, target.handle, targetRecord, name, identity())
+        branches.watch(targetHandle)
+        flushIds.push(targetHandle.documentId)
+      }
+      const result = mergeCommit(targetHandle, source.handle, identity(), { sourceRecord })
+      await repo.flush([...new Set(flushIds)])
+      if (targetHandle !== target.handle) activateHandle(targetHandle)
+      refresh(); text.focus(); sendPresence()
+      notify(result ? 'Merged the dragged commit. Review the result, then create a checkpoint.' : 'All source edits are already included.')
+    } catch (error) { notify(`Could not merge commits: ${error.message}`) }
+    finally { versionBusy = false; refresh() }
+  }
   $('merge').onclick = async () => {
     if (composing || selectedHash || versionBusy) return
     versionBusy = true; refresh()
@@ -566,9 +725,35 @@ try {
     finally { versionBusy = false; refresh() }
   }
   $('live').onclick = live
+  document.addEventListener('pointermove', event => {
+    if (!pointerCommitDrag) return
+    if (Math.hypot(event.clientX - pointerCommitDrag.startX, event.clientY - pointerCommitDrag.startY) > 4) {
+      pointerCommitDrag.dragging = true
+      tooltip.hidden = true
+      const targetGroup = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('g[data-node-id]')
+      const targetId = targetGroup?.dataset.nodeId !== pointerCommitDrag.node.nodeId ? targetGroup?.dataset.nodeId : null
+      setCommitDragHighlight(pointerCommitDrag.node.nodeId, targetId)
+    }
+  })
+  document.addEventListener('pointerup', event => {
+    if (!pointerCommitDrag) return
+    const drag = pointerCommitDrag
+    pointerCommitDrag = null
+    if (!drag.dragging) { clearCommitDragHighlight(); return }
+    suppressCommitClick = true
+    clearTimeout(commitClickTimer)
+    setTimeout(() => { suppressCommitClick = false }, 0)
+    const targetGroup = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('g[data-node-id]')
+    const target = targetGroup && visibleCommitNodes.get(targetGroup.dataset.nodeId)
+    clearCommitDragHighlight()
+    if (target && target.nodeId !== drag.node.nodeId) mergeCommitNodes(drag.node, target)
+  })
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       tooltip.hidden = true
+      pointerCommitDrag = null
+      draggedCommitNode = null
+      clearCommitDragHighlight()
       if (selectedHash) { event.preventDefault(); live() }
     }
   })
@@ -584,7 +769,7 @@ try {
     if (!selectedHash && selection) {
       try { text.setSelectionRange(...selection.map(c => A.getCursorPosition(displayed, ['text'], c)), direction) } catch { /* Initial selection. */ }
     }
-    capture(); renderCursors(); updateBranchSelect(); renderGraph()
+    capture(); renderCursors(); updateBranchSelect(); renderGraph(); renderCommitDetail()
   }
   function edit() {
     if (composing || selectedHash) return

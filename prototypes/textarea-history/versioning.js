@@ -112,13 +112,13 @@ export function preserveBranchIdentity(handle, who) {
   const info = branchInfo(handle)
   handle.change(doc => { doc[key] = info ? JSON.parse(JSON.stringify(info)) : { name: 'Main' } }, changeOptions(who, { kind: 'branch-identity' }))
 }
-export function mergeBranch(target, source, who) {
-  if (source.url === target.url) throw new Error('Choose another branch to merge')
-  const targetState = commitState(target), sourceState = commitState(source)
-  const sourceContent = sourceState.changes.filter(c => c.hasText || metadata(c).kind === 'resolution')
+export function mergeCommit(target, source, who, { sourceRecord = null } = {}) {
+  const targetState = commitState(target)
+  const right = sourceRecord || checkpoint(source, '', who)
+  const sourceContent = historyIndex.ingest(source.doc()).between([], right.snapshotHeads).filter(c => c.hasText || metadata(c).kind === 'resolution')
   const targetHashes = new Set(targetState.changes.map(c => c.hash))
   if (sourceContent.every(c => targetHashes.has(c.hash))) return null
-  const left = checkpoint(target, '', who), right = checkpoint(source, '', who)
+  const left = checkpoint(target, '', who)
   preserveBranchIdentity(target, who)
   // Clone the pinned content and apply the import plus control record atomically
   // on the target. Source edits arriving later stay outside this merge.
@@ -138,4 +138,8 @@ export function mergeBranch(target, source, who) {
     d[`merge:${id}`] = encodeRecord({ id, branchUrl: target.url, parentIds: [left.id, right.id], sourceUrl: source.url })
   }))
   return { left, right }
+}
+export function mergeBranch(target, source, who) {
+  if (source.url === target.url) throw new Error('Choose another branch to merge')
+  return mergeCommit(target, source, who)
 }
