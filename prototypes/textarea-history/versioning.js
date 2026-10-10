@@ -11,7 +11,11 @@ export const changeOptions = (who, extra = {}) => ({
   time: Math.floor(Date.now() / 1000),
 })
 export function commitRecords(doc) {
-  return Object.entries(doc).filter(([key]) => key.startsWith('commit:')).map(([, value]) => decodeRecord(value))
+  return Object.entries(doc).filter(([key]) => key.startsWith('commit:')).map(([, value]) => {
+    const record = decodeRecord(value)
+    const title = doc[`commit-title:${record.id}`]
+    return typeof title === 'string' && title.trim() ? { ...record, title: title.trim() } : record
+  })
 }
 let states = new WeakMap()
 const summaries = new LruCache(512), openStages = new LruCache(64)
@@ -88,6 +92,12 @@ export function checkpoint(handle, title, who, { force = false } = {}) {
   }
   handle.change(doc => { doc[`commit:${record.id}`] = encodeRecord(record) }, changeOptions(who, { kind: 'checkpoint' }))
   return record
+}
+export function renameCommit(handle, record, title, who) {
+  if (!record || record.open) return null
+  const next = title.trim() || 'Checkpoint'
+  handle.change(doc => { doc[`commit-title:${record.id}`] = next }, changeOptions(who, { kind: 'commit-title', commitId: record.id }))
+  return { ...record, title: next }
 }
 export function branchFromCommit(repo, source, record, name, who) {
   const saved = record || checkpoint(source, '', who)

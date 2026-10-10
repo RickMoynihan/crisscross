@@ -5,7 +5,7 @@ import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-index
 import { sameHeads, author, color } from './graph.js'
 import { textEdits, describeEdits } from './changes.js'
 import { branchInfo } from './branches.js'
-import { commitState, checkpoint, branchFromCommit, mergeBranch, changeOptions } from './versioning.js'
+import { commitState, checkpoint, renameCommit, branchFromCommit, mergeBranch, changeOptions } from './versioning.js'
 import { currentPassage, applyResolution } from './conflicts.js'
 import { ReviewClient } from './review-client.js'
 import { watchBranches } from './branch-documents.js'
@@ -39,11 +39,11 @@ try {
   const userId = sessionStorage.getItem('textarea-history-user-id') || crypto.randomUUID()
   sessionStorage.setItem('textarea-history-user-id', userId)
   const identity = () => ({ author: username(), userId })
-  let reviewSession = null, versionBusy = false, renderQueued = false
+  let reviewSession = null, versionBusy = false, renderQueued = false, commitClickTimer = null
   const reviews = new ReviewClient({ onUpdate: () => {
     if (renderQueued) return
     renderQueued = true
-    requestAnimationFrame(() => { renderQueued = false; if ($('individual').checked) renderIssues(); else renderGraph() })
+    requestAnimationFrame(() => { renderQueued = false; renderIssues(); renderGraph() })
   } })
   const notify = message => { $('version-status').textContent = message }
 
@@ -138,13 +138,11 @@ try {
     }
   }, { root: $('history'), rootMargin: '200px' })
   function renderGraph() {
-    const activity = $('individual').checked
-    graph.hidden = !activity
-    graph.style.display = activity ? 'block' : 'none'
-    $('commits').hidden = activity
+    graph.hidden = false
+    graph.style.display = 'block'
+    $('commits').hidden = true
     $('heads').textContent = `${branchInfo(handle)?.name || 'Main'} · open commit`
-    if (activity) renderActivityGraph()
-    else renderCommits()
+    renderActivityGraph()
     const chosen = $('merge-source').value
     $('merge-source').replaceChildren(...[...documents.values()].filter(d => d.url !== handle.url).map(d => {
       const option = element('option', `${branchInfo(d)?.name || 'Main'} · ${d.documentId.slice(0, 5)}`)
@@ -301,10 +299,108 @@ try {
       closeReview(); refresh(); notify('Resolution recorded as a new edit.')
     } catch (error) { $('review-message').textContent = error.message }
   }
+  function renderCommitTrainlines() {
+    const nodes = [], edges = [], byId = new Map()
+    for (const docHandle of documents.values()) {
+      if (!branchLanes.has(docHandle.url)) branchLanes.set(docHandle.url, branchLanes.size)
+      const state = commitState(docHandle), branchName = branchInfo(docHandle)?.name || 'Main'
+      const lane = branchLanes.get(docHandle.url)
+      const records = [state.open, ...state.closed]
+      for (const record of records) {
+        const id = `${docHandle.url}/${record.id}`
+        const node = { ...record, nodeId: id, url: docHandle.url, handle: docHandle, doc: state.doc, lane, branchName,
+          time: record.open ? Number.MAX_SAFE_INTEGER : record.closedAt || 0 }
+        nodes.push(node); byId.set(record.id, node)
+      }
+    }
+    for (const node of nodes) for (const parentId of node.parentIds || []) {
+      const parent = byId.get(parentId)
+      if (parent) edges.push({ from: node.nodeId, to: parent.nodeId })
+    }
+    nodes.sort((a, b) => b.time - a.time || a.branchName.localeCompare(b.branchName) || a.id.localeCompare(b.id))
+    nodes.forEach((node, row) => { node.row = row })
+    const byNodeId = new Map(nodes.map(n => [n.nodeId, n]))
+    const x = n => 20 + n.lane * 22, y = n => 24 + n.row * 42
+    const labelX = 44 + Math.max(0, branchLanes.size - 1) * 22, width = labelX + 320
+    const height = Math.max(64, 24 + nodes.length * 42)
+    graph.setAttribute('width', width); graph.setAttribute('height', height)
+    graph.replaceChildren()
+    $('heads').textContent = `${branchInfo(handle)?.name || 'Main'} · open commit`
+    for (const edge of edges) {
+      const from = byNodeId.get(edge.from), to = byNodeId.get(edge.to)
+      if (!from || !to) continue
+      const bend = Math.max(y(from), y(to) - 30)
+      graph.append(svg('path', { d: `M${x(from)},${y(from)} L${x(from)},${bend} C${x(from)},${y(to)} ${x(to)},${bend} ${x(to)},${y(to)}`,
+        fill: 'none', stroke: color(from.url), 'stroke-width': 2 }))
+    }
+    for (const node of nodes) {
+      const selected = !node.open && selectedHash === node.id && handle.url === node.url
+      const contributors = node.contributors.map(p => `${p.count} ${p.count === 1 ? 'edit' : 'edits'} from ${p.name}`).join(' · ')
+      const label = node.open ? `${node.branchName} · open commit` : `${node.branchName} · ${node.title}`
+      const sublabel = contributors || (node.open ? 'No new edits yet' : 'No content edits')
+      const group = svg('g', { tabindex: 0, role: 'button', 'aria-pressed': String(selected), 'data-commit': node.id, 'data-document': node.url,
+        'aria-label': `${label}\n${sublabel}` })
+      group.append(svg('rect', { x: 4, y: y(node) - 17, width: width - 8, height: 34, rx: 5,
+        fill: selected ? '#fff0c2' : node.open && node.url === handle.url ? '#e9eef3' : 'transparent', stroke: selected ? '#b68118' : 'none' }))
+      group.append(svg('circle', { cx: x(node), cy: y(node), r: node.open ? 8 : 5, fill: node.open ? 'white' : color(node.url), stroke: color(node.url), 'stroke-width': 2 }))
+      group.append(svg('text', { x: labelX, y: y(node) - 2 }, label.length > 36 ? label.slice(0, 35) + '…' : label))
+      group.append(svg('text', { x: labelX, y: y(node) + 13 }, sublabel.length > 42 ? sublabel.slice(0, 41) + '…' : sublabel))
+      const activate = () => node.open ? switchBranch(node.url) : openCommitSnapshot(node.handle, node)
+      const editName = () => {
+        if (composing || versionBusy || selectedHash) return
+        const foreign = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject')
+        foreign.setAttribute('x', labelX); foreign.setAttribute('y', y(node) - 17)
+        foreign.setAttribute('width', width - labelX - 8); foreign.setAttribute('height', 32)
+        const input = document.createElement('input')
+        input.value = node.open ? '' : node.title
+        input.placeholder = node.open ? 'Name checkpoint' : 'Checkpoint name'
+        input.maxLength = 120
+        input.style.width = '100%'; input.style.height = '28px'; input.style.padding = '3px 6px'
+        foreign.append(input); graph.append(foreign)
+        input.focus(); input.select()
+        let saved = false
+        const save = async apply => {
+          if (saved) return
+          saved = true; foreign.remove()
+          const title = input.value.trim()
+          if (!apply || (!node.open && title === node.title) || (node.open && !title)) return
+          versionBusy = true; refresh()
+          try {
+            if (node.open) {
+              const record = checkpoint(node.handle, title, identity(), { force: true })
+              await repo.flush([node.handle.documentId])
+              notify(`Created checkpoint “${record.title}”. Everyone continues in the next open commit.`)
+            } else {
+              renameCommit(node.handle, node, title, identity())
+              await repo.flush([node.handle.documentId])
+              notify(`Renamed checkpoint to “${title}”.`)
+            }
+          } catch (error) { notify(`Could not save checkpoint name: ${error.message}`) }
+          finally { versionBusy = false; refresh() }
+        }
+        input.onclick = input.ondblclick = event => event.stopPropagation()
+        input.onkeydown = event => {
+          if (event.key === 'Enter') { event.preventDefault(); save(true) }
+          if (event.key === 'Escape') { event.preventDefault(); save(false) }
+        }
+        input.onblur = () => save(true)
+      }
+      group.onclick = () => {
+        clearTimeout(commitClickTimer)
+        commitClickTimer = setTimeout(activate, 180)
+      }
+      group.ondblclick = event => {
+        event.preventDefault(); event.stopPropagation(); clearTimeout(commitClickTimer); editName()
+      }
+      group.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate() }; if (e.key === 'F2') { e.preventDefault(); editName() } }
+      graph.append(group)
+    }
+  }
   function renderActivityGraph() {
     tooltip.hidden = true
+    if (!$('individual').checked) return renderCommitTrainlines()
     const { nodes, edges } = branchHistory([...documents.values()], {
-      grouped: !$('individual').checked, selected: selectedHash, lanes: branchLanes,
+      grouped: false, selected: selectedHash, lanes: branchLanes,
     })
     const badges = new Map()
     for (const node of nodes.filter(n => n.anchor)) {
@@ -408,7 +504,6 @@ try {
     handle = next
     handle.on('ephemeral-message', receivePresence)
     selectedHash = null; selectedHeads = null; selection = null; compositionHeads = null; compositionContext = null
-    $('commit-title').value = ''
     peers.clear()
     closeReview()
     history.replaceState(null, '', `#${handle.url}`)
@@ -454,18 +549,6 @@ try {
     } catch (error) { notify(`Could not create branch: ${error.message}`) }
     finally { versionBusy = false; refresh() }
   }
-  $('checkpoint').onclick = async () => {
-    if (composing || selectedHash || versionBusy) return
-    versionBusy = true; refresh()
-    try {
-      const record = checkpoint(handle, $('commit-title').value, identity())
-      $('commit-title').value = ''
-      await repo.flush([handle.documentId])
-      notify(`Created checkpoint “${record.title}”. Everyone continues in the next open commit.`)
-      refresh()
-    } catch (error) { notify(`Could not create checkpoint: ${error.message}`) }
-    finally { versionBusy = false; refresh() }
-  }
   $('merge').onclick = async () => {
     if (composing || selectedHash || versionBusy) return
     versionBusy = true; refresh()
@@ -500,8 +583,6 @@ try {
       $('branch-source').href = `#${branch.source}`
     }
     $('mode-detail').textContent = selectedHash ? `Read-only · pinned snapshot · Escape returns to live` : ''
-    $('checkpoint').disabled = versionBusy || Boolean(selectedHash) || composing
-    $('commit-title').disabled = Boolean(selectedHash)
     $('branch-create').textContent = selectedHash ? 'Branch from checkpoint' : 'Checkpoint and branch…'
     $('branch-create').disabled = versionBusy || composing || Boolean(selectedHash && !commitState(handle).byId.has(selectedHash))
     const direction = text.selectionDirection
