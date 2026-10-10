@@ -23,13 +23,11 @@ textarea { width: 100%; height: 100%; resize: none; background: transparent; col
 #history-mode { position: absolute; top: 10px; right: 10px; z-index: 1; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 20px); padding: 7px 9px; background: #fff0c2ee; border: 1px solid #b68118; border-radius: 999px; box-shadow: 0 2px 8px #0001; font-size: 12px }
 #history-mode strong, #history-mode span { white-space: nowrap } #history-mode button { padding: 3px 7px }
 #branch-select { max-width: 220px; font-weight: 600 } #branch-status { display: block; margin-top: 6px; color: #65717b; font-size: 12px }
-#branch-name { width: 160px; margin-left: 12px }
 [hidden] { display: none !important }
 #version-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center }
 #version-status { min-height: 1.4em; font-size: 12px; color: #52606d }
 #text-heading { display: flex; align-items: baseline; gap: 12px }
 #review-progress { visibility: hidden; font-weight: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-#branch-name { margin-left: 0 }
 .history-pages { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px }
 .branch-commits h3 { font-size: 13px; margin: 18px 0 8px }
 .commit-card { padding: 12px; margin: 8px 0; border: 1px solid #ccd2d8; border-radius: 6px; background: white }
@@ -61,7 +59,6 @@ summary { cursor: pointer; font-size: 12px; padding: 4px 0 }
 <span id="status" role="status">Loading…</span>
 </header>
 <div id="version-actions">
-<input id="branch-name" aria-label="Branch name" placeholder="Branch name" maxlength="60"><button id="branch-create">Checkpoint and branch…</button>
 <select id="merge-source" aria-label="Branch to merge"></select><button id="merge">Merge into current branch</button>
 </div>
 <p id="version-status" role="status"></p>

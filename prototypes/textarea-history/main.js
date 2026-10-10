@@ -343,6 +343,14 @@ try {
       group.append(svg('circle', { cx: x(node), cy: y(node), r: node.open ? 8 : 5, fill: node.open ? 'white' : color(node.url), stroke: color(node.url), 'stroke-width': 2 }))
       group.append(svg('text', { x: labelX, y: y(node) - 2 }, label.length > 36 ? label.slice(0, 35) + '…' : label))
       group.append(svg('text', { x: labelX, y: y(node) + 13 }, sublabel.length > 42 ? sublabel.slice(0, 41) + '…' : sublabel))
+      const branchLink = svg('text', { x: width - 76, y: y(node) + 4, fill: '#34745b', style: 'opacity:0; cursor:pointer; font-weight:600' }, '+ branch')
+      branchLink.onclick = event => { event.preventDefault(); event.stopPropagation(); createBranchFromCommitNode(node) }
+      branchLink.ondblclick = event => { event.preventDefault(); event.stopPropagation() }
+      group.append(branchLink)
+      const showBranchLink = () => { branchLink.style.opacity = '1' }
+      const hideBranchLink = () => { branchLink.style.opacity = '0' }
+      group.onmouseenter = group.onfocus = showBranchLink
+      group.onmouseleave = group.onblur = hideBranchLink
       const activate = () => node.open ? switchBranch(node.url) : openCommitSnapshot(node.handle, node)
       const editName = () => {
         if (composing || versionBusy || selectedHash) return
@@ -527,20 +535,18 @@ try {
     $('branch-select').value = handle.url
     $('branch-status').textContent = unavailable.size ? `${unavailable.size} branch document(s) unavailable · retrying` : loading.size ? 'Loading branches…' : ''
   }
-  $('branch-create').onclick = async () => {
+  async function createBranchFromCommitNode(node) {
     if (composing || versionBusy) return
-    versionBusy = true
-    const button = $('branch-create')
-    button.disabled = true
+    const name = prompt('Branch name', 'Alternative')?.trim()
+    if (!name) return
+    versionBusy = true; refresh()
     try {
-      const record = selectedHash ? commitState(handle).byId.get(selectedHash) : null
-      if (selectedHash && !record) throw new Error('Choose a closed commit to branch from')
-      const branch = branchFromCommit(repo, handle, record,
-        $('branch-name').value.trim() || 'Alternative', identity())
-      await repo.flush([branch.documentId, handle.documentId])
+      const record = node.open ? null : commitState(node.handle).byId.get(node.id)
+      if (!node.open && !record) throw new Error('Choose a closed commit to branch from')
+      const branch = branchFromCommit(repo, node.handle, record, name, identity())
+      await repo.flush([branch.documentId, node.handle.documentId])
       branches.watch(branch)
       activateHandle(branch)
-      $('branch-name').value = ''
       refresh(); text.focus(); sendPresence()
       notify('Branch created. Collaborators remain on the source branch.')
     } catch (error) { notify(`Could not create branch: ${error.message}`) }
@@ -573,8 +579,6 @@ try {
     $('history-mode').hidden = !selectedHash
     $('editor').classList.toggle('history', Boolean(selectedHash))
     $('mode-detail').textContent = selectedHash ? `Read-only · Esc returns to live` : ''
-    $('branch-create').textContent = selectedHash ? 'Branch from checkpoint' : 'Checkpoint and branch…'
-    $('branch-create').disabled = versionBusy || composing || Boolean(selectedHash && !commitState(handle).byId.has(selectedHash))
     const direction = text.selectionDirection
     text.value = displayed.text || ''
     if (!selectedHash && selection) {
