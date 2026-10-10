@@ -11,6 +11,7 @@ input { width: 150px } button { cursor: pointer } #status, .hint { color: #65717
 main > section { min-width: 0 }
 main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(330px, 430px); gap: 24px } h2 { font-size: 14px; font-weight: 600; margin: 0 0 10px }
 #editor { position: relative; height: 65vh; min-height: 240px; overflow: hidden; border: 1px solid #ccc; border-radius: 4px; background: white }
+#editor.history { border-color: #b68118; box-shadow: 0 0 0 2px #fff0c2 }
 textarea, #mirror { margin: 0; padding: 14px; border: 0; font: 16px/24px monospace; tab-size: 4; white-space: pre-wrap; overflow-wrap: break-word; letter-spacing: normal }
 textarea { width: 100%; height: 100%; resize: none; background: transparent; color: inherit; outline-offset: -2px }
 #mirror { position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none }
@@ -19,8 +20,8 @@ textarea { width: 100%; height: 100%; resize: none; background: transparent; col
 .caret span { position: absolute; top: -13px; left: 0; padding: 0 3px; font: 10px/13px system-ui; background: var(--color); color: white; white-space: nowrap; max-width: 130px; overflow: hidden }
 #history { height: 65vh; overflow: auto } svg { display: block } svg text { font: 12px system-ui; fill: #52606d } svg g { cursor: pointer } svg g:focus { outline: none } svg g:focus circle, svg g:focus rect { stroke: #111; stroke-width: 3 }
 #current { position: sticky; top: 0; z-index: 1; background: #fafaf8; padding: 8px 0; border-bottom: 1px solid #ddd }
-#history-mode { padding: 12px; margin-bottom: 16px; background: #fff0c2; border: 1px solid #b68118; border-radius: 4px }
-#history-mode strong { margin-right: 12px } #history-mode button { margin-left: 12px }
+#history-mode { position: absolute; top: 10px; right: 10px; z-index: 1; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 20px); padding: 7px 9px; background: #fff0c2ee; border: 1px solid #b68118; border-radius: 999px; box-shadow: 0 2px 8px #0001; font-size: 12px }
+#history-mode strong, #history-mode span { white-space: nowrap } #history-mode button { padding: 3px 7px }
 #branch-select { max-width: 220px; font-weight: 600 } #branch-status { display: block; margin-top: 6px; color: #65717b; font-size: 12px }
 #branch-name { width: 160px; margin-left: 12px }
 [hidden] { display: none !important }
@@ -59,7 +60,6 @@ summary { cursor: pointer; font-size: 12px; padding: 4px 0 }
 <button id="pause" disabled>Pause sync</button><button id="copy" disabled>Copy link</button>
 <span id="status" role="status">Loading…</span>
 </header>
-<div id="history-mode" role="status" hidden><strong>History View</strong><span id="mode-detail"></span><button id="live">Return to live</button></div>
 <div id="version-actions">
 <input id="branch-name" aria-label="Branch name" placeholder="Branch name" maxlength="60"><button id="branch-create">Checkpoint and branch…</button>
 <select id="merge-source" aria-label="Branch to merge"></select><button id="merge">Merge into current branch</button>
@@ -73,7 +73,7 @@ summary { cursor: pointer; font-size: 12px; padding: 4px 0 }
 <button id="review-apply">Apply resolution</button><button id="review-cancel">Cancel</button><p id="review-message" role="status"></p>
 </section>
 <main>
-<section><h2 id="text-heading">Text <span id="review-progress" class="hint">Checking for overlapping edits…</span></h2><div id="editor"><textarea id="text" aria-label="Shared text" spellcheck="false" disabled></textarea><pre id="mirror" aria-hidden="true"></pre><div id="cursors" aria-hidden="true"></div></div><p class="hint">Open the same link in another tab. Pause sync, edit both, then resume to combine their edits.</p></section>
+<section><h2 id="text-heading">Text <span id="review-progress" class="hint">Checking for overlapping edits…</span></h2><div id="editor"><textarea id="text" aria-label="Shared text" spellcheck="false" disabled></textarea><pre id="mirror" aria-hidden="true"></pre><div id="cursors" aria-hidden="true"></div><div id="history-mode" role="status" hidden><strong>Viewing snapshot</strong><span id="mode-detail"></span><button id="live">Return to live</button></div></div><p class="hint">Open the same link in another tab. Pause sync, edit both, then resume to combine their edits.</p></section>
 <section><h2>History <span class="hint">Candidate versioning model</span></h2><div id="history"><div id="current"><select id="branch-select" aria-label="Active branch"></select><span id="branch-status" role="status"></span></div><div id="commits" hidden></div><svg id="graph" role="group" aria-label="Explicit branches and commit timeline"></svg></div><p class="hint">Double-click an open commit to name and checkpoint it; double-click a checkpoint name to edit it. Everyone on a branch shares its open commit.</p></section>
 </main>
 <div id="tooltip" role="tooltip" hidden></div>

@@ -571,7 +571,8 @@ try {
     displayed = selectedHash ? A.view(handle.doc(), selectedHeads) : handle.doc()
     text.readOnly = Boolean(selectedHash)
     $('history-mode').hidden = !selectedHash
-    $('mode-detail').textContent = selectedHash ? `Read-only · pinned snapshot · Escape returns to live` : ''
+    $('editor').classList.toggle('history', Boolean(selectedHash))
+    $('mode-detail').textContent = selectedHash ? `Read-only · Esc returns to live` : ''
     $('branch-create').textContent = selectedHash ? 'Branch from checkpoint' : 'Checkpoint and branch…'
     $('branch-create').disabled = versionBusy || composing || Boolean(selectedHash && !commitState(handle).byId.has(selectedHash))
     const direction = text.selectionDirection
