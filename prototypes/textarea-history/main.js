@@ -141,7 +141,6 @@ try {
     graph.hidden = false
     graph.style.display = 'block'
     $('commits').hidden = true
-    $('heads').textContent = `${branchInfo(handle)?.name || 'Main'} · open commit`
     renderCommitTrainlines()
     const chosen = $('merge-source').value
     $('merge-source').replaceChildren(...[...documents.values()].filter(d => d.url !== handle.url).map(d => {
@@ -325,7 +324,6 @@ try {
     const height = Math.max(64, 24 + nodes.length * 42)
     graph.setAttribute('width', width); graph.setAttribute('height', height)
     graph.replaceChildren()
-    $('heads').textContent = `${branchInfo(handle)?.name || 'Main'} · open commit`
     for (const edge of edges) {
       const from = byNodeId.get(edge.from), to = byNodeId.get(edge.to)
       if (!from || !to) continue
@@ -417,7 +415,6 @@ try {
     const labelX = 40 + Math.max(0, branchLanes.size - 1) * 20, width = labelX + 240
     graph.setAttribute('width', width); graph.setAttribute('height', height)
     graph.replaceChildren()
-    $('heads').textContent = `${branchInfo(handle)?.name || 'Main'} · current document`
     const byId = new Map(nodes.map(n => [n.id, n]))
     for (const edge of edges) {
       const from = byId.get(edge.from), to = byId.get(edge.to)
@@ -520,7 +517,7 @@ try {
     const options = [...documents.values()].map(doc => {
       const option = document.createElement('option')
       option.value = doc.url
-      option.textContent = `${branchInfo(doc)?.name || 'Main'} · ${doc.documentId.slice(0, 5)}`
+      option.textContent = `${branchInfo(doc)?.name || 'Main'} · open commit`
       return option
     })
     const existing = [...$('branch-select').options]
@@ -563,7 +560,6 @@ try {
     finally { versionBusy = false; refresh() }
   }
   $('live').onclick = live
-  $('heads').onclick = live
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       tooltip.hidden = true
@@ -575,12 +571,6 @@ try {
     displayed = selectedHash ? A.view(handle.doc(), selectedHeads) : handle.doc()
     text.readOnly = Boolean(selectedHash)
     $('history-mode').hidden = !selectedHash
-    const branch = branchInfo(handle)
-    $('branch-info').hidden = !branch
-    if (branch) {
-      $('branch-label').textContent = `Branch: ${branch.name} · from ${branch.forkHash.slice(0, 7)}`
-      $('branch-source').href = `#${branch.source}`
-    }
     $('mode-detail').textContent = selectedHash ? `Read-only · pinned snapshot · Escape returns to live` : ''
     $('branch-create').textContent = selectedHash ? 'Branch from checkpoint' : 'Checkpoint and branch…'
     $('branch-create').disabled = versionBusy || composing || Boolean(selectedHash && !commitState(handle).byId.has(selectedHash))
