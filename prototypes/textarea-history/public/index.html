@@ -59,8 +59,13 @@ summary { cursor: pointer; font-size: 12px; padding: 4px 0 }
 #review-message { color: #854514 }
 .review-context { color: #65717b }
 #review-panel mark { background: #fff0c2; color: inherit }
-#review-choices { display: flex; gap: 16px; flex-wrap: wrap }
-#review-choices > div { flex: 1; min-width: 180px }
+#review-choices { display: grid; gap: 12px }
+.merge-conflict { border: 1px solid #ccd2d8; border-radius: 6px; overflow: hidden; background: #f6f8fa; font: 12px/1.45 monospace }
+.merge-line { display: block; padding: 2px 10px; white-space: pre-wrap; overflow-wrap: anywhere }
+.merge-marker { color: #57606a; background: #eaeef2; font-weight: 700; user-select: none }
+.merge-current { background: #ffebe9; color: #8c1d18 }
+.merge-choice { background: #dafbe1; color: #1f5f2f }
+.merge-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-top: 1px solid #d8dee4; background: white }
 #tooltip { position: fixed; z-index: 2; max-width: min(580px, 95vw); max-height: 70vh; overflow: auto; padding: 12px; border: 1px solid #bbc2c9; border-radius: 5px; background: white; box-shadow: 0 4px 20px #0002; font: 12px/1.5 monospace; white-space: pre-wrap; overflow-wrap: anywhere; pointer-events: none }
 @media(max-width: 900px) { main, main.detail-open { grid-template-columns: 1fr } #commit-detail { height: auto; opacity: 1; transform: none; pointer-events: auto } }
 </style>
@@ -77,7 +82,7 @@ summary { cursor: pointer; font-size: 12px; padding: 4px 0 }
 <section id="review-panel" hidden aria-labelledby="review-title">
 <h2 id="review-title"></h2><p id="review-description" class="hint">Review the affected passage. Applying records a new edit and preserves history.</p>
 <strong>Shared base</strong><pre id="review-base"></pre><strong>Current passage</strong><pre id="review-current"></pre>
-<div id="review-choices"></div><p class="hint">Surrounding text is shown for context. Only the highlighted passage is replaced.</p><label for="review-result">Result — edit or choose a version above</label><textarea id="review-result" spellcheck="false"></textarea>
+<div id="review-choices"></div><p class="hint">Red is the current conflicting passage; green is an alternate side. Only the highlighted passage is replaced.</p><label for="review-result">Resolved result — edit or choose a side above</label><textarea id="review-result" spellcheck="false"></textarea>
 <button id="review-apply">Apply resolution</button><button id="review-cancel">Cancel</button><p id="review-message" role="status"></p>
 </section>
 <main id="workspace">

@@ -244,14 +244,33 @@ try {
     reviewSession = null
     $('review-panel').hidden = true
   }
+  function mergeConflictView(current, choices) {
+    const container = element('div')
+    for (const choice of choices) {
+      const block = element('div', null, 'merge-conflict')
+      block.append(
+        element('span', '<<<<<<< Current document', 'merge-line merge-marker'),
+        element('span', current || '(empty)', 'merge-line merge-current'),
+        element('span', '=======', 'merge-line merge-marker'),
+        element('span', choice.text || '(empty)', 'merge-line merge-choice'),
+        element('span', `>>>>>>> ${choice.label.replace(/^Use\s+/, '')}`, 'merge-line merge-marker'),
+      )
+      const actions = element('div', null, 'merge-actions')
+      actions.append(action('Use current side', () => { $('review-result').value = current }),
+        action(choice.label, () => { $('review-result').value = choice.text }))
+      block.append(actions)
+      container.append(block)
+    }
+    return container
+  }
   function beginReview(issue, heads) {
     if (selectedHash) return
     if (!sameHeads(heads, A.getHeads(handle.doc()))) { notify('The passage changed. Wait for its updated review.'); return }
     reviewSession = { issue, heads: A.getHeads(handle.doc()), url: handle.url }
     $('review-title').textContent = issue.title
     $('review-description').textContent = issue.kind === 'review'
-      ? `${issue.editCount} edits grouped into one passage. Choose an editor’s latest version or edit the result; one approval resolves this batch.`
-      : 'Choose a value or edit the result. Applying records a new edit and preserves history.'
+      ? `${issue.editCount} edits overlap in one passage. Resolve the merge conflict by choosing a side or editing the final result.`
+      : 'Resolve the text conflict by choosing a side or editing the final result.'
     const current = currentPassage(handle.doc(), issue), fullText = handle.doc().text || ''
     const before = [...fullText.slice(0, current.start).split('\n').at(-1)].slice(-60).join('')
     const after = [...fullText.slice(current.end).split('\n')[0]].slice(0, 60).join('')
@@ -260,13 +279,7 @@ try {
     preview($('review-base'), issue.base)
     preview($('review-current'), current.text)
     $('review-result').value = current.text
-    $('review-choices').replaceChildren()
-    for (const choice of issue.choices) {
-      const container = element('div'), textPreview = element('pre')
-      preview(textPreview, choice.text)
-      container.append(textPreview, action(choice.label, () => { $('review-result').value = choice.text }))
-      $('review-choices').append(container)
-    }
+    $('review-choices').replaceChildren(mergeConflictView(current.text, issue.choices))
     $('review-message').textContent = ''
     $('review-panel').hidden = false
     $('review-result').focus()
