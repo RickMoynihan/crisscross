@@ -286,6 +286,16 @@ export function resolveIssue(handle, issue, value, who, expectedHeads, openCommi
   if (!reviewIssues(handle.doc()).some(item => item.id === issue.id)) throw new Error('This issue has already been resolved.')
   return applyResolution(handle, issue, value, who, expectedHeads, openCommitId)
 }
+export function applyStoredResolution(handle, issue, value, who, openCommitId) {
+  const { start, end } = currentPassage(handle.doc(), issue)
+  const id = crypto.randomUUID()
+  handle.change(doc => {
+    if (issue.kind === 'conflict') doc.text = value
+    else A.splice(doc, ['text'], start, end - start, value)
+    doc[`resolution:${id}`] = encodeRecord({ issueId: issue.id, batches: issue.batches || [],
+      ...(issue.kind === 'review' ? { startCursor: issue.startCursor, endCursor: issue.endCursor } : {}), author: typeof who === 'string' ? who : who.author, value, reapplied: true })
+  }, changeOptions(who, { kind: 'resolution', openCommitId }))
+}
 // The browser passes a worker-validated issue tied to these exact heads. Keep
 // this final compare-and-apply synchronous; no stale worker result may write.
 export function applyResolution(handle, issue, value, who, expectedHeads, openCommitId) {

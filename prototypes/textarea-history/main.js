@@ -5,8 +5,8 @@ import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-index
 import { sameHeads, author, color } from './graph.js'
 import { textEdits, describeEdits } from './changes.js'
 import { branchInfo, branchName, branchRemoved, renameBranch, renameBranchLink, removeBranchOpenCommit } from './branches.js'
-import { commitState, checkpoint, renameCommit, branchFromCommit, mergeBranch, mergeCommit, changeOptions } from './versioning.js'
-import { currentPassage, applyResolution } from './conflicts.js'
+import { commitState, checkpoint, renameCommit, branchFromCommit, mergeBranch, mergeCommit, recordMergeReview, mergeReviewRecords, resolutionRecords, changeOptions } from './versioning.js'
+import { currentPassage, applyResolution, applyStoredResolution, reviewIssues } from './conflicts.js'
 import { ReviewClient } from './review-client.js'
 import { watchBranches } from './branch-documents.js'
 import { branchHistory } from './branch-history.js'
@@ -244,7 +244,14 @@ try {
     reviewSession = null
     $('review-panel').hidden = true
   }
-  function mergeConflictView(current, choices) {
+  function storedMergeIssues(doc) {
+    return reviewIssues(doc).map(issue => {
+      const current = currentPassage(doc, issue)
+      return { id: issue.id, kind: issue.kind, title: issue.title, base: issue.base || '', current: current.text,
+        startCursor: issue.startCursor, endCursor: issue.endCursor, batches: issue.batches || [], choices: issue.choices || [] }
+    })
+  }
+  function mergeConflictView(current, choices, { actions = true } = {}) {
     const container = element('div')
     for (const choice of choices) {
       const block = element('div', null, 'merge-conflict')
@@ -255,10 +262,12 @@ try {
         element('span', choice.text || '(empty)', 'merge-line merge-choice'),
         element('span', `>>>>>>> ${choice.label.replace(/^Use\s+/, '')}`, 'merge-line merge-marker'),
       )
-      const actions = element('div', null, 'merge-actions')
-      actions.append(action('Use current side', () => { $('review-result').value = current }),
-        action(choice.label, () => { $('review-result').value = choice.text }))
-      block.append(actions)
+      if (actions) {
+        const controls = element('div', null, 'merge-actions')
+        controls.append(action('Use current side', () => { $('review-result').value = current }),
+          action(choice.label, () => { $('review-result').value = choice.text }))
+        block.append(controls)
+      }
       container.append(block)
     }
     return container
@@ -300,6 +309,13 @@ try {
     }
     return patch
   }
+  function reapplyStoredResolution(issue, value) {
+    try {
+      selectedHash = null; selectedHeads = null
+      applyStoredResolution(handle, issue, value, identity(), commitState(handle).open.id)
+      refresh(); notify('Recorded a new resolution edit from the stored merge conflict.')
+    } catch (error) { notify(`Could not apply stored resolution: ${error.message}`) }
+  }
   function renderCommitDetail() {
     const workspace = $('workspace'), panel = $('commit-detail-panel')
     const state = commitState(handle)
@@ -328,6 +344,25 @@ try {
         if (!parent) continue
         panel.append(element('p', `Compared with “${parent.title}”`, 'hint'),
           patchView(textEdits(state.doc, { beforeHeads: parent.snapshotHeads, afterHeads: record.snapshotHeads })))
+      }
+    }
+    const mergeReviews = mergeReviewRecords(state.doc).filter(review => (record.mergeIds || []).includes(review.id))
+    const resolutions = resolutionRecords(state.doc)
+    if (mergeReviews.length) {
+      panel.append(element('h4', 'Recorded merge conflicts'))
+      for (const review of mergeReviews) for (const issue of review.issues || []) {
+        const resolved = resolutions.filter(r => r.issueId === issue.id)
+        const section = element('section')
+        section.append(element('p', issue.title || 'Merge conflict', 'hint'), mergeConflictView(issue.current || '', issue.choices || [], { actions: false }))
+        if (resolved.length) {
+          section.append(element('strong', 'Resolution history'))
+          for (const r of resolved) section.append(element('pre', `${r.author || 'Unknown'} chose:\n${r.value || ''}`))
+        }
+        const actions = element('div', null, 'merge-actions')
+        actions.append(action('Apply current side again', () => reapplyStoredResolution(issue, issue.current || '')))
+        for (const choice of issue.choices || []) actions.append(action(choice.label, () => reapplyStoredResolution(issue, choice.text)))
+        section.append(actions)
+        panel.append(section)
       }
     }
     if (record.lateEdits?.length) panel.append(element('p', `${record.lateEdits.length} edits arrived from an earlier editing context`, 'hint'))
@@ -717,6 +752,10 @@ try {
         flushIds.push(targetHandle.documentId)
       }
       const result = mergeCommit(targetHandle, source.handle, identity(), { sourceRecord })
+      if (result?.id) {
+        const issues = storedMergeIssues(targetHandle.doc())
+        if (issues.length) recordMergeReview(targetHandle, result.id, issues, identity())
+      }
       await repo.flush([...new Set(flushIds)])
       if (targetHandle !== target.handle) activateHandle(targetHandle)
       refresh(); text.focus(); sendPresence()
@@ -731,6 +770,10 @@ try {
       const source = documents.get($('merge-source').value)
       if (!source) return
       const result = mergeBranch(handle, source, identity())
+      if (result?.id) {
+        const issues = storedMergeIssues(handle.doc())
+        if (issues.length) recordMergeReview(handle, result.id, issues, identity())
+      }
       await repo.flush([handle.documentId, source.documentId])
       notify(result ? 'Merged the captured source checkpoint into this open commit. Review the result, then create a checkpoint.' : 'All source edits are already included.')
       refresh()

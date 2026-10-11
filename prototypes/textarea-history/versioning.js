@@ -17,6 +17,12 @@ export function commitRecords(doc) {
     return typeof title === 'string' && title.trim() ? { ...record, title: title.trim() } : record
   })
 }
+export function mergeReviewRecords(doc) {
+  return Object.entries(doc).filter(([key]) => key.startsWith('merge-review:')).map(([, value]) => decodeRecord(value))
+}
+export function resolutionRecords(doc) {
+  return Object.entries(doc).filter(([key]) => key.startsWith('resolution:')).map(([, value]) => decodeRecord(value))
+}
 let states = new WeakMap()
 const summaries = new LruCache(512), openStages = new LruCache(64)
 export const summaryStats = { rebuilt: 0, editsAdded: 0 }
@@ -112,6 +118,12 @@ export function preserveBranchIdentity(handle, who) {
   const info = branchInfo(handle)
   handle.change(doc => { doc[key] = info ? JSON.parse(JSON.stringify(info)) : { name: 'Main' } }, changeOptions(who, { kind: 'branch-identity' }))
 }
+export function recordMergeReview(handle, mergeId, issues, who) {
+  if (!mergeId || !issues.length) return null
+  const record = { id: mergeId, issues, recordedAt: Date.now(), recordedBy: typeof who === 'string' ? who : who.author }
+  handle.change(doc => { doc[`merge-review:${mergeId}`] = encodeRecord(record) }, changeOptions(who, { kind: 'merge-review', mergeId }))
+  return record
+}
 export function mergeCommit(target, source, who, { sourceRecord = null } = {}) {
   const targetState = commitState(target)
   const right = sourceRecord || checkpoint(source, '', who)
@@ -133,11 +145,11 @@ export function mergeCommit(target, source, who, { sourceRecord = null } = {}) {
   }
   include(right.id)
   const id = crypto.randomUUID()
-  target.update(doc => A.change(A.merge(doc, snapshot), changeOptions(who, { kind: 'merge' }), d => {
+  target.update(doc => A.change(A.merge(doc, snapshot), changeOptions(who, { kind: 'merge', mergeId: id }), d => {
     for (const record of imported) if (!d[`commit:${record.id}`]) d[`commit:${record.id}`] = encodeRecord(record)
     d[`merge:${id}`] = encodeRecord({ id, branchUrl: target.url, parentIds: [left.id, right.id], sourceUrl: source.url })
   }))
-  return { left, right }
+  return { left, right, id }
 }
 export function mergeBranch(target, source, who) {
   if (source.url === target.url) throw new Error('Choose another branch to merge')

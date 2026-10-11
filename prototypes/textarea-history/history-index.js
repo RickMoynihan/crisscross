@@ -2,7 +2,7 @@ import { Automerge as A } from '@automerge/automerge-repo/slim'
 import { LruCache, headsKey } from './analysis-cache.js'
 
 export const metadata = change => { try { return JSON.parse(change.message) || {} } catch { return {} } }
-const controls = new Set(['checkpoint', 'branch-create', 'branch-register', 'branch-identity', 'branch-rename', 'branch-rename-link', 'branch-remove', 'branch-remove-open', 'merge'])
+const controls = new Set(['checkpoint', 'branch-create', 'branch-register', 'branch-identity', 'branch-rename', 'branch-rename-link', 'branch-remove', 'branch-remove-open', 'merge', 'merge-review'])
 const mergeClock = (target, source) => { for (const [actor, seq] of source) target.set(actor, Math.max(target.get(actor) || 0, seq)) }
 const compare = (a, b) => a.depth - b.depth || (a.time || 0) - (b.time || 0) || a.actor.localeCompare(b.actor) || a.seq - b.seq
 
