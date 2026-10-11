@@ -84,8 +84,16 @@ resume it to make the branch available to other browsers.
 
 ## Storage and syncing
 
-Sync uses only `wss://sync.automerge.org`; pause disconnects this tab from the relay,
-including presence. There is no BroadcastChannel bypass. Documents persist in
+This prototype has no custom application server or backend API. It is served as a
+static site; all application-specific logic runs in the browser, including editing,
+commit/checkpoint metadata, branch operations, merge handling, conflict review, and
+history rendering. Review analysis runs in a browser Web Worker so it does not block
+the UI; it is not server-side processing.
+
+Sync uses only `wss://sync.automerge.org`; the Automerge sync relay transports
+document changes and ephemeral presence messages, but does not run app-specific
+merge, review, checkpoint, or branch logic. Pause disconnects this tab from the
+relay, including presence. There is no BroadcastChannel bypass. Documents persist in
 IndexedDB. Names are tab-local session preferences and unauthenticated labels.
 Each ordinary input event makes a change when text changes; IME composition is
 applied as one change against the state where composition began. Author names are
