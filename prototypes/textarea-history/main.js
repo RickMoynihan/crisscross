@@ -56,6 +56,34 @@ try {
     if (paused || composing || !adapter.remotePeerId || adapter.socket?.readyState !== 1) return
     handle.broadcast({ type: 'cursor', name: username(), cursor: !selectedHash && document.activeElement === text ? A.getCursor(handle.doc(), ['text'], text.selectionEnd) : null })
   }
+  const cannedAssistant = [
+    { summary: 'I’m watching for overlapping edits.', thoughts: 'No urgent conflicts detected yet.' },
+    { summary: 'This branch has an active open commit.', thoughts: 'Consider checkpointing once the current passage settles.', feedback: 'Was this useful?' },
+    { summary: 'Recent history looks merge-heavy.', thoughts: 'Review the merge detail column to compare parent diffs before naming the next checkpoint.' },
+    { summary: 'I can help summarize unresolved review work.', thoughts: 'Future assistant feedback could tune which conflicts I surface first.', feedback: 'Tell me what to improve' },
+  ]
+  function renderAssistantMessage(summary, thoughts, feedback) {
+    $('assistant-summary').textContent = summary || 'Waiting for assistant…'
+    const node = $('assistant-thoughts')
+    node.replaceChildren()
+    if (Array.isArray(thoughts)) thoughts = thoughts.join('\n')
+    if (thoughts) node.append(document.createTextNode(String(thoughts)))
+    if (feedback) {
+      if (thoughts) node.append(document.createTextNode(' '))
+      const link = document.createElement('a')
+      link.href = '#assistant-feedback'
+      link.textContent = feedback
+      node.append(link)
+    }
+  }
+  function renderAssistant() {
+    const doc = handle.doc()
+    const assistant = doc.assistant || {}
+    const summary = String(assistant.summary || doc.assistantSummary || '').trim()
+    const thoughts = assistant.thoughts ?? doc.assistantThoughts ?? ''
+    if (summary || thoughts) renderAssistantMessage(summary, thoughts, assistant.feedback || doc.assistantFeedback)
+    else renderAssistantMessage(...Object.values(cannedAssistant[Math.floor(Date.now() / 8000) % cannedAssistant.length]))
+  }
   function renderCursors() {
     const mirror = $('mirror'), container = $('cursors')
     container.replaceChildren()
@@ -781,6 +809,15 @@ try {
     finally { versionBusy = false; refresh() }
   }
   $('live').onclick = live
+  function showHistoryTab(tab) {
+    const assistant = tab === 'assistant'
+    $('history-tab-history').setAttribute('aria-selected', String(!assistant))
+    $('history-tab-assistant').setAttribute('aria-selected', String(assistant))
+    $('history').hidden = assistant
+    $('assistant-panel').hidden = !assistant
+  }
+  $('history-tab-history').onclick = () => showHistoryTab('history')
+  $('history-tab-assistant').onclick = () => showHistoryTab('assistant')
   document.addEventListener('pointermove', event => {
     if (!pointerCommitDrag) return
     if (Math.hypot(event.clientX - pointerCommitDrag.startX, event.clientY - pointerCommitDrag.startY) > 4) {
@@ -825,7 +862,7 @@ try {
     if (!selectedHash && selection) {
       try { text.setSelectionRange(...selection.map(c => A.getCursorPosition(displayed, ['text'], c)), direction) } catch { /* Initial selection. */ }
     }
-    capture(); renderCursors(); updateBranchSelect(); renderGraph(); renderCommitDetail()
+    capture(); renderCursors(); renderAssistant(); updateBranchSelect(); renderGraph(); renderCommitDetail()
   }
   function edit() {
     if (composing || selectedHash) return
@@ -877,7 +914,7 @@ try {
   repo.networkSubsystem.on('peer', status)
   repo.networkSubsystem.on('peer-disconnected', status)
   setInterval(() => {
-    status(); sendPresence(); renderCursors()
+    status(); sendPresence(); renderCursors(); renderAssistant()
     if (!paused) branches.retry()
   }, 3000)
   text.disabled = $('pause').disabled = $('copy').disabled = false

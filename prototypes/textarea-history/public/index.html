@@ -18,6 +18,10 @@ textarea { width: 100%; height: 100%; resize: none; background: transparent; col
 #cursors { position: absolute; inset: 0; pointer-events: none; overflow: hidden }
 .caret { position: absolute; width: 2px; height: 24px; background: var(--color) }
 .caret span { position: absolute; top: -13px; left: 0; padding: 0 3px; font: 10px/13px system-ui; background: var(--color); color: white; white-space: nowrap; max-width: 130px; overflow: hidden }
+.history-tabs { display: flex; gap: 6px; margin-bottom: 8px }
+.history-tabs button { padding: 5px 9px; font-size: 12px }
+.history-tabs button[aria-selected="true"] { background: #263342; border-color: #263342; color: white }
+.history-pane { height: 65vh; overflow: auto }
 #history { height: 65vh; overflow: auto } svg { display: block } svg text { font: 12px system-ui; fill: #52606d } svg g { cursor: pointer } svg g:focus { outline: none } svg g:focus circle, svg g:focus rect { stroke: #111; stroke-width: 3 }
 svg g.drag-source rect { fill: #e9eef3; stroke: #52606d; stroke-width: 2; stroke-dasharray: 4 3 }
 svg g.drop-target rect { fill: #dff4ea; stroke: #34745b; stroke-width: 3 }
@@ -67,6 +71,11 @@ summary { cursor: pointer; font-size: 12px; padding: 4px 0 }
 .merge-choice { background: #dafbe1; color: #1f5f2f }
 .merge-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-top: 1px solid #d8dee4; background: white }
 #tooltip { position: fixed; z-index: 2; max-width: min(580px, 95vw); max-height: 70vh; overflow: auto; padding: 12px; border: 1px solid #bbc2c9; border-radius: 5px; background: white; box-shadow: 0 4px 20px #0002; font: 12px/1.5 monospace; white-space: pre-wrap; overflow-wrap: anywhere; pointer-events: none }
+#assistant-panel { height: 65vh; overflow: auto; padding: 14px; border: 1px solid #ccd2d8; border-radius: 6px; background: white; font-size: 13px }
+#assistant-panel h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #52606d }
+#assistant-panel p { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere }
+#assistant-panel .assistant-summary { font-weight: 600; color: #263342 }
+#assistant-panel .assistant-thoughts { color: #52606d }
 @media(max-width: 900px) { main, main.detail-open { grid-template-columns: 1fr } #commit-detail { height: auto; opacity: 1; transform: none; pointer-events: auto } }
 </style>
 <header>
@@ -87,7 +96,7 @@ summary { cursor: pointer; font-size: 12px; padding: 4px 0 }
 </section>
 <main id="workspace">
 <section><h2 id="text-heading">Text <span id="review-progress" class="hint">Checking for overlapping edits…</span></h2><div id="editor"><textarea id="text" aria-label="Shared text" spellcheck="false" disabled></textarea><pre id="mirror" aria-hidden="true"></pre><div id="cursors" aria-hidden="true"></div><div id="history-mode" role="status" hidden><strong>Viewing snapshot</strong><span id="mode-detail"></span><button id="live">Return to live</button></div></div><p class="hint">Open the same link in another tab. Pause sync, edit both, then resume to combine their edits.</p></section>
-<section><h2>History <span class="hint">Candidate versioning model</span></h2><div id="history"><div id="current"><select id="branch-select" aria-label="Active branch"></select><span id="branch-status" role="status"></span></div><div id="commits" hidden></div><svg id="graph" role="group" aria-label="Explicit branches and commit timeline"></svg></div><p class="hint">Double-click an open commit to name and checkpoint it; double-click a checkpoint name to edit it. Everyone on a branch shares its open commit.</p></section>
+<section><h2>History <span class="hint">Candidate versioning model</span></h2><div class="history-tabs" role="tablist" aria-label="History panel"><button id="history-tab-history" role="tab" aria-selected="true" aria-controls="history">History</button><button id="history-tab-assistant" role="tab" aria-selected="false" aria-controls="assistant-panel">Assistant</button></div><div id="history" class="history-pane" role="tabpanel" aria-labelledby="history-tab-history"><div id="current"><select id="branch-select" aria-label="Active branch"></select><span id="branch-status" role="status"></span></div><div id="commits" hidden></div><svg id="graph" role="group" aria-label="Explicit branches and commit timeline"></svg></div><aside id="assistant-panel" class="history-pane" role="tabpanel" aria-labelledby="history-tab-assistant" hidden aria-live="polite"><h2>Assistant</h2><p class="assistant-summary" id="assistant-summary">Waiting for assistant…</p><p class="assistant-thoughts" id="assistant-thoughts"></p></aside><p class="hint">Double-click an open commit to name and checkpoint it; double-click a checkpoint name to edit it. Everyone on a branch shares its open commit.</p></section>
 <section id="commit-detail" aria-label="Commit details"><div id="commit-detail-panel"></div></section>
 </main>
 <div id="tooltip" role="tooltip" hidden></div>
