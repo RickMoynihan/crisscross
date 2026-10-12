@@ -6,7 +6,8 @@
     "start": "npm run build -- --servedir=public --serve=8000",
     "build": "esbuild app=main.js review-worker=review-worker.js --bundle --format=esm --target=es2022 --outdir=public",
     "test": "node --test test/*.test.js",
-    "benchmark": "node benchmarks/versioning.mjs"
+    "benchmark": "node benchmarks/versioning.mjs",
+    "agent": "node agent-runner.js"
   },
   "dependencies": {
     "@automerge/automerge": "^3.5.0",

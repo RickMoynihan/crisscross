@@ -56,12 +56,7 @@ try {
     if (paused || composing || !adapter.remotePeerId || adapter.socket?.readyState !== 1) return
     handle.broadcast({ type: 'cursor', name: username(), cursor: !selectedHash && document.activeElement === text ? A.getCursor(handle.doc(), ['text'], text.selectionEnd) : null })
   }
-  const cannedAssistant = [
-    { summary: 'I’m watching for overlapping edits.', thoughts: 'No urgent conflicts detected yet.' },
-    { summary: 'This branch has an active open commit.', thoughts: 'Consider checkpointing once the current passage settles.', feedback: 'Was this useful?' },
-    { summary: 'Recent history looks merge-heavy.', thoughts: 'Review the merge detail column to compare parent diffs before naming the next checkpoint.' },
-    { summary: 'I can help summarize unresolved review work.', thoughts: 'Future assistant feedback could tune which conflicts I surface first.', feedback: 'Tell me what to improve' },
-  ]
+  let assistantMessage = null
   function renderAssistantMessage(summary, thoughts, feedback) {
     $('assistant-summary').textContent = summary || 'Waiting for assistant…'
     const node = $('assistant-thoughts')
@@ -77,12 +72,9 @@ try {
     }
   }
   function renderAssistant() {
-    const doc = handle.doc()
-    const assistant = doc.assistant || {}
-    const summary = String(assistant.summary || doc.assistantSummary || '').trim()
-    const thoughts = assistant.thoughts ?? doc.assistantThoughts ?? ''
-    if (summary || thoughts) renderAssistantMessage(summary, thoughts, assistant.feedback || doc.assistantFeedback)
-    else renderAssistantMessage(...Object.values(cannedAssistant[Math.floor(Date.now() / 8000) % cannedAssistant.length]))
+    if (assistantMessage && Date.now() - assistantMessage.seen < 30000) {
+      renderAssistantMessage(assistantMessage.summary, assistantMessage.thoughts, assistantMessage.feedback)
+    } else renderAssistantMessage('Waiting for assistant…', '')
   }
   function renderCursors() {
     const mirror = $('mirror'), container = $('cursors')
@@ -669,9 +661,9 @@ try {
   function activateHandle(next) {
     if (!next || composing) return
     if (!paused && adapter.remotePeerId && adapter.socket?.readyState === 1) handle.broadcast({ type: 'cursor', name: username(), cursor: null })
-    handle.off('ephemeral-message', receivePresence)
+    handle.off('ephemeral-message', receiveEphemeral)
     handle = next
-    handle.on('ephemeral-message', receivePresence)
+    handle.on('ephemeral-message', receiveEphemeral)
     selectedHash = null; selectedHeads = null; selection = null; compositionHeads = null; compositionContext = null
     peers.clear()
     closeReview()
@@ -894,11 +886,22 @@ try {
   text.onscroll = renderCursors
   new ResizeObserver(renderCursors).observe(text)
   name.oninput = () => { sessionStorage.setItem('textarea-history-name', name.value); sendPresence() }
-  function receivePresence({ senderId, message }) {
-    if (paused || message?.type !== 'cursor' || typeof message.name !== 'string' || (message.cursor !== null && typeof message.cursor !== 'string')) return
-    peers.set(senderId, { name: message.name.slice(0, 60), cursor: message.cursor, seen: Date.now() }); renderCursors()
+  function receiveEphemeral({ senderId, message }) {
+    if (paused || !message) return
+    if (message.type === 'cursor') {
+      if (typeof message.name !== 'string' || (message.cursor !== null && typeof message.cursor !== 'string')) return
+      peers.set(senderId, { name: message.name.slice(0, 60), cursor: message.cursor, seen: Date.now() }); renderCursors()
+    } else if (message.type === 'assistant') {
+      assistantMessage = {
+        summary: String(message.summary || '').slice(0, 500),
+        thoughts: Array.isArray(message.thoughts) ? message.thoughts.map(item => String(item).slice(0, 1000)) : String(message.thoughts || '').slice(0, 4000),
+        feedback: message.feedback ? String(message.feedback).slice(0, 200) : '',
+        seen: Date.now(), senderId,
+      }
+      renderAssistant()
+    }
   }
-  handle.on('ephemeral-message', receivePresence)
+  handle.on('ephemeral-message', receiveEphemeral)
   $('pause').onclick = () => {
     paused = !paused
     if (paused) { repo.networkSubsystem.removeNetworkAdapter(adapter); peers.clear(); renderCursors() }

@@ -82,6 +82,22 @@ name, source URL, fork heads, and parent checkpoint. Head branching first closes
 the received source state. Source and branch edits stay independent. Reloading preserves the branch and its origin. If sync is paused,
 resume it to make the branch available to other browsers.
 
+## Agent runner prototype
+
+Run `npm run agent -- <automerge-url>` to start a prototype Automerge agent daemon.
+It connects to the configured sync server, subscribes to the supplied document, and
+broadcasts assistant updates as ephemeral Automerge messages. The browser renders
+those messages in the Assistant tab; they are not persisted in document history.
+
+```sh
+npm run agent -- automerge:... --sync wss://sync.automerge.org
+```
+
+Configuration is also available through `AUTOMERGE_DOC_URL`,
+`AUTOMERGE_SYNC_URL`, and `AGENT_INTERVAL_MS`. The current prototype uses the same
+hardcoded assistant messages as the earlier UI mock, but sends them from the daemon
+on a timer.
+
 ## Storage and syncing
 
 This prototype has no custom application server or backend API. It is served as a
