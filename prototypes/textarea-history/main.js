@@ -56,7 +56,7 @@ try {
     if (paused || composing || !adapter.remotePeerId || adapter.socket?.readyState !== 1) return
     handle.broadcast({ type: 'cursor', name: username(), cursor: !selectedHash && document.activeElement === text ? A.getCursor(handle.doc(), ['text'], text.selectionEnd) : null })
   }
-  let assistantMessage = null
+  let assistantMessage = null, assistantMuted = false, assistantFlashTimer = null
   function renderAssistantMessage(summary, thoughts, feedback) {
     $('assistant-summary').textContent = summary || 'Waiting for assistant…'
     const node = $('assistant-thoughts')
@@ -72,9 +72,18 @@ try {
     }
   }
   function renderAssistant() {
-    if (assistantMessage && Date.now() - assistantMessage.seen < 30000) {
+    $('assistant-toggle').textContent = assistantMuted ? 'Resume assistant' : 'Mute assistant'
+    $('assistant-toggle').setAttribute('aria-pressed', String(assistantMuted))
+    if (assistantMuted) renderAssistantMessage('Assistant muted.', 'The local UI asked the agent to pause riffs and cursor/status updates.')
+    else if (assistantMessage && Date.now() - assistantMessage.seen < 30000) {
       renderAssistantMessage(assistantMessage.summary, assistantMessage.thoughts, assistantMessage.feedback)
     } else renderAssistantMessage('Waiting for assistant…', '')
+  }
+  function flashAssistantUpdate() {
+    const editor = $('editor')
+    editor.classList.add('assistant-updated')
+    clearTimeout(assistantFlashTimer)
+    assistantFlashTimer = setTimeout(() => editor.classList.remove('assistant-updated'), 1700)
   }
   function renderCursors() {
     const mirror = $('mirror'), container = $('cursors')
@@ -810,6 +819,13 @@ try {
   }
   $('history-tab-history').onclick = () => showHistoryTab('history')
   $('history-tab-assistant').onclick = () => showHistoryTab('assistant')
+  $('assistant-toggle').onclick = () => {
+    assistantMuted = !assistantMuted
+    if (!paused && adapter.remotePeerId && adapter.socket?.readyState === 1) {
+      handle.broadcast({ type: 'agent-control', action: assistantMuted ? 'mute' : 'resume' })
+    }
+    renderAssistant()
+  }
   document.addEventListener('pointermove', event => {
     if (!pointerCommitDrag) return
     if (Math.hypot(event.clientX - pointerCommitDrag.startX, event.clientY - pointerCommitDrag.startY) > 4) {
@@ -892,12 +908,14 @@ try {
       if (typeof message.name !== 'string' || (message.cursor !== null && typeof message.cursor !== 'string')) return
       peers.set(senderId, { name: message.name.slice(0, 60), cursor: message.cursor, role: message.role === 'agent' ? 'agent' : 'user', seen: Date.now() }); renderCursors()
     } else if (message.type === 'assistant') {
+      if (assistantMuted && message.status !== 'idle') return
       assistantMessage = {
         summary: String(message.summary || '').slice(0, 500),
         thoughts: Array.isArray(message.thoughts) ? message.thoughts.map(item => String(item).slice(0, 1000)) : String(message.thoughts || '').slice(0, 4000),
         feedback: message.feedback ? String(message.feedback).slice(0, 200) : '',
         seen: Date.now(), senderId,
       }
+      if (message.event === 'riff-added') flashAssistantUpdate()
       renderAssistant()
     }
   }

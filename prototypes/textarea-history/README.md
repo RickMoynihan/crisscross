@@ -97,8 +97,11 @@ npm run agent -- automerge:... --sync wss://sync.automerge.org
 
 Configuration is also available through `AUTOMERGE_DOC_URL`,
 `AUTOMERGE_SYNC_URL`, `AGENT_INTERVAL_MS`, and `AGENT_RIFF_COOLDOWN_MS`. The current
-prototype uses deterministic canned behavior; an LLM can later replace the riff
-selection/generation without changing the collaboration channel.
+prototype uses deterministic canned behavior behind a `generateRiff` seam; an LLM
+can later replace the riff selection/generation without changing the collaboration
+channel. The browser can mute/resume the runner through ephemeral `agent-control`
+messages, and the runner avoids responding to its own edits with cooldowns for both
+the document and individual paragraphs.
 
 ## Storage and syncing
 

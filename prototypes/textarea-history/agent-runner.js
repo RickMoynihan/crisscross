@@ -39,13 +39,32 @@ const repo = new Repo({
 console.log(`agent-runner connecting to ${syncUrl}`)
 console.log(`agent-runner subscribing to ${docUrl}`)
 
-let handle = null, stopped = false, lastUserCursor = null, lastUserName = 'a collaborator'
-let debounceTimer = null, lastRiffAt = 0, lastRiffedParagraph = '', writing = false
+let handle = null, stopped = false, paused = false, lastUserCursor = null, lastUserName = 'a collaborator'
+let debounceTimer = null, lastRiffAt = 0, lastRiffedParagraph = '', writing = false, typingOffset = null, abortTyping = false
+const paragraphCooldowns = new Map()
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
-function sendAssistantStatus(status, summary, thoughts = '') {
+function sendAssistantStatus(status, summary, thoughts = '', extra = {}) {
   if (!handle) return
-  handle.broadcast({ type: 'assistant', agent: 'agent-runner', status, summary, thoughts, sentAt: Date.now() })
+  handle.broadcast({ type: 'assistant', agent: 'agent-runner', status, summary, thoughts, sentAt: Date.now(), ...extra })
+}
+
+function changeMetadata(change) {
+  try { return JSON.parse(change.message) || {} } catch { return {} }
+}
+
+function latestChangeIsAgent() {
+  if (!handle) return false
+  const changes = A.getAllChanges(handle.doc())
+  if (!changes.length) return false
+  const metadata = changeMetadata(A.decodeChange(changes.at(-1)))
+  return metadata.userId === agent.userId || metadata.kind === 'agent-riff'
+}
+
+function paragraphKey(value) {
+  let hash = 0
+  for (let i = 0; i < value.length; i++) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0
+  return `${value.length}:${hash}`
 }
 
 function cursorPosition(doc) {
@@ -79,12 +98,32 @@ function adjacentCursorPosition(doc, { writing = false } = {}) {
   return Math.max(0, Math.min(text.length, nearby))
 }
 
-function sendAgentCursor(status = 'watching') {
-  if (!handle) return
+function sendAgentCursor(status = 'watching', position = null) {
+  if (!handle || paused) return
   const doc = handle.doc()
   let cursor = null
-  try { cursor = A.getCursor(doc, ['text'], adjacentCursorPosition(doc, { writing: status === 'writing' })) } catch {}
+  try { cursor = A.getCursor(doc, ['text'], position ?? adjacentCursorPosition(doc, { writing: status === 'writing' })) } catch {}
   handle.broadcast({ type: 'cursor', name: status === 'writing' ? 'Assistant writing' : 'Assistant', role: 'agent', cursor })
+}
+
+async function typeTextAt(position, value, options) {
+  let offset = position
+  typingOffset = offset; abortTyping = false
+  console.log(`typing assistant riff · ${value.length} chars at offset ${position}`)
+  for (let i = 0; i < value.length && !stopped && !paused && !abortTyping; ) {
+    const remaining = value.length - i
+    const size = Math.min(remaining, value[i] === '\n' ? 1 : 2 + Math.floor(Math.random() * 3))
+    const chunk = value.slice(i, i + size)
+    handle.change(doc => { A.splice(doc, ['text'], offset, 0, chunk) }, options)
+    offset += chunk.length; i += chunk.length; typingOffset = offset
+    sendAgentCursor('writing', offset)
+    // Around 70–90wpm equivalent, with small bursts instead of perfectly even keystrokes.
+    await sleep(55 + chunk.length * 80 + Math.random() * 70)
+  }
+  const stoppedByUser = abortTyping
+  typingOffset = null; abortTyping = false
+  console.log(stoppedByUser ? 'assistant riff typing stopped by user cursor' : paused ? 'assistant riff typing paused' : 'assistant riff typing complete')
+  return !stoppedByUser && !paused && !stopped
 }
 
 function paragraphNear(text, position) {
@@ -112,17 +151,23 @@ function latestParagraph(doc) {
   return best
 }
 
-const riffFor = paragraph => `\n\nAssistant riff:\n- clarify the user-facing outcome\n- name one tradeoff or constraint\n- add one concrete example to make “${paragraph.slice(0, 32).replace(/\s+/g, ' ')}${paragraph.length > 32 ? '…' : ''}” easier to act on`
+async function generateRiff({ paragraph }) {
+  // LLM integration point: replace this deterministic response with a model call
+  // that returns a short, validated string.
+  return `\n\nAssistant riff:\n- clarify the user-facing outcome\n- name one tradeoff or constraint\n- add one concrete example to make “${paragraph.slice(0, 32).replace(/\s+/g, ' ')}${paragraph.length > 32 ? '…' : ''}” easier to act on`
+}
 
 function scheduleInspiredResponse() {
-  if (!handle || writing) return
+  if (!handle || writing || paused || latestChangeIsAgent()) return
   clearTimeout(debounceTimer)
   sendAgentCursor('watching')
   sendAssistantStatus('watching', `Watching ${lastUserName}'s latest paragraph.`)
   debounceTimer = setTimeout(async () => {
-    if (!handle || writing || Date.now() - lastRiffAt < riffCooldownMs) return
+    if (!handle || writing || paused || latestChangeIsAgent() || Date.now() - lastRiffAt < riffCooldownMs) return
     const doc = handle.doc(), text = doc.text || '', paragraph = latestParagraph(doc)
     if (!paragraph || paragraph.value.length < 40 || paragraph.value === lastRiffedParagraph) return
+    const key = paragraphKey(paragraph.value)
+    if (Date.now() - (paragraphCooldowns.get(key) || 0) < riffCooldownMs * 3) return
     lastRiffedParagraph = paragraph.value
     sendAssistantStatus('thinking', 'Thinking about a short adjacent riff…', 'I will keep it brief and write below the paragraph.')
     sendAgentCursor('writing')
@@ -130,14 +175,17 @@ function scheduleInspiredResponse() {
     const current = handle.doc(), currentText = current.text || ''
     const fresh = latestParagraph(current)
     if (!fresh || fresh.value !== paragraph.value || currentText.slice(fresh.end, fresh.end + 40).includes('Assistant riff:')) return
+    const riff = await generateRiff({ paragraph: fresh.value, doc: current })
+    if (!riff || riff.length > 600) return
     writing = true
     try {
       const insertAt = fresh.end
-      handle.change(doc => {
-        A.splice(doc, ['text'], insertAt, 0, riffFor(fresh.value))
-      }, changeOptions(agent, { kind: 'agent-riff', mode: 'riff', openCommitId: commitState(handle).open.id }))
-      lastRiffAt = Date.now()
-      sendAssistantStatus('writing', 'Added a short riff below the current paragraph.', 'Edit or delete it like any other text.')
+      const options = changeOptions(agent, { kind: 'agent-riff', mode: 'riff', openCommitId: commitState(handle).open.id })
+      lastRiffAt = Date.now(); paragraphCooldowns.set(key, lastRiffAt)
+      sendAssistantStatus('writing', 'Typing a short riff below the current paragraph…', 'Edit or delete it like any other text.')
+      const completed = await typeTextAt(insertAt, riff, options)
+      if (completed) sendAssistantStatus('writing', 'Added a short riff below the current paragraph.', 'Edit or delete it like any other text.', { event: 'riff-added' })
+      else sendAssistantStatus('watching', 'Stopped typing to stay out of your way.', 'Move your cursor away and keep writing; I will wait before trying again.')
     } finally {
       writing = false
       sendAgentCursor('watching')
@@ -151,19 +199,39 @@ async function subscribe() {
       const next = await repo.find(docUrl)
       if (stopped) return
       handle = next
+      await handle.whenReady()
       handle.on('ephemeral-message', ({ message }) => {
-        if (message?.type !== 'cursor' || message.role === 'agent') return
+        if (!message) return
+        if (message.type === 'agent-control') {
+          paused = message.action === 'mute' ? true : message.action === 'resume' ? false : paused
+          clearTimeout(debounceTimer)
+          sendAssistantStatus(paused ? 'idle' : 'watching', paused ? 'Assistant muted.' : 'Assistant resumed.')
+          if (!paused) sendAgentCursor('watching')
+          return
+        }
+        if (message.type !== 'cursor' || message.role === 'agent') return
         if (typeof message.cursor === 'string') lastUserCursor = message.cursor
         if (typeof message.name === 'string') lastUserName = message.name.slice(0, 60) || 'a collaborator'
+        if (writing && typingOffset != null) {
+          try {
+            const userPos = A.getCursorPosition(handle.doc(), ['text'], lastUserCursor)
+            if (Math.abs(userPos - typingOffset) <= 3) {
+              abortTyping = true
+              sendAssistantStatus('watching', 'Backing off while you edit there.', 'I stopped typing because your cursor moved onto my insertion point.')
+            }
+          } catch {}
+          return
+        }
         sendAgentCursor('watching')
       })
       handle.on('heads-changed', () => {
         console.log(`document updated · ${handle.heads().length} head(s) · ${new Date().toISOString()}`)
-        if (!writing) scheduleInspiredResponse()
+        if (!writing && !paused && !latestChangeIsAgent()) scheduleInspiredResponse()
       })
       console.log('agent-runner subscribed')
       sendAssistantStatus('watching', 'Assistant joined as a dynamic collaborator.', 'I will watch nearby text and occasionally add a short riff.')
       sendAgentCursor('watching')
+      if ((handle.doc().text || '').trim()) scheduleInspiredResponse()
     } catch (error) {
       console.error(`document unavailable; retrying in ${retryMs}ms: ${error.message}`)
       await sleep(retryMs)
@@ -182,8 +250,10 @@ repo.networkSubsystem.on('peer-disconnected', peerId => {
 
 subscribe()
 const timer = setInterval(() => {
-  sendAssistantStatus('watching', lastUserCursor ? `Watching near ${lastUserName}'s cursor.` : 'Watching for document changes.')
-  sendAgentCursor('watching')
+  if (!paused) {
+    sendAssistantStatus('watching', lastUserCursor ? `Watching near ${lastUserName}'s cursor.` : 'Watching for document changes.')
+    sendAgentCursor('watching')
+  }
 }, intervalMs)
 
 process.on('SIGINT', () => {
