@@ -90,7 +90,7 @@ try {
         marker.textContent = '\u200b'
         mirror.replaceChildren(document.createTextNode(text.value.slice(0, pos)), marker, document.createTextNode(text.value.slice(pos) + '\u200b'))
         const caret = document.createElement('div'), label = document.createElement('span')
-        caret.className = 'caret'; caret.style.setProperty('--color', color(id))
+        caret.className = `caret${peer.role === 'agent' ? ' agent' : ''}`; caret.style.setProperty('--color', peer.role === 'agent' ? '#7c3aed' : color(id))
         caret.style.left = `${marker.offsetLeft - text.scrollLeft}px`
         caret.style.top = `${marker.offsetTop - text.scrollTop}px`
         label.textContent = peer.name; caret.append(label); container.append(caret)
@@ -890,7 +890,7 @@ try {
     if (paused || !message) return
     if (message.type === 'cursor') {
       if (typeof message.name !== 'string' || (message.cursor !== null && typeof message.cursor !== 'string')) return
-      peers.set(senderId, { name: message.name.slice(0, 60), cursor: message.cursor, seen: Date.now() }); renderCursors()
+      peers.set(senderId, { name: message.name.slice(0, 60), cursor: message.cursor, role: message.role === 'agent' ? 'agent' : 'user', seen: Date.now() }); renderCursors()
     } else if (message.type === 'assistant') {
       assistantMessage = {
         summary: String(message.summary || '').slice(0, 500),

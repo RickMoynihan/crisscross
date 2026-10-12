@@ -18,6 +18,8 @@ textarea { width: 100%; height: 100%; resize: none; background: transparent; col
 #cursors { position: absolute; inset: 0; pointer-events: none; overflow: hidden }
 .caret { position: absolute; width: 2px; height: 24px; background: var(--color) }
 .caret span { position: absolute; top: -13px; left: 0; padding: 0 3px; font: 10px/13px system-ui; background: var(--color); color: white; white-space: nowrap; max-width: 130px; overflow: hidden }
+.caret.agent { width: 0; border-left: 2px dashed var(--color); background: transparent }
+.caret.agent span::before { content: '🤖 '; }
 .history-tabs { display: flex; gap: 6px; margin-bottom: 8px }
 .history-tabs button { padding: 5px 9px; font-size: 12px }
 .history-tabs button[aria-selected="true"] { background: #263342; border-color: #263342; color: white }

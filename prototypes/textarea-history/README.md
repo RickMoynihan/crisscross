@@ -86,17 +86,19 @@ resume it to make the branch available to other browsers.
 
 Run `npm run agent -- <automerge-url>` to start a prototype Automerge agent daemon.
 It connects to the configured sync server, subscribes to the supplied document, and
-broadcasts assistant updates as ephemeral Automerge messages. The browser renders
-those messages in the Assistant tab; they are not persisted in document history.
+acts as a lightweight dynamic collaborator. It broadcasts ephemeral status/cursor
+updates, watches for document changes, and occasionally writes a short canned
+“Assistant riff” below the nearby paragraph. Status/cursor updates are not persisted;
+riff text is a normal Automerge edit and appears in the open commit/history.
 
 ```sh
 npm run agent -- automerge:... --sync wss://sync.automerge.org
 ```
 
 Configuration is also available through `AUTOMERGE_DOC_URL`,
-`AUTOMERGE_SYNC_URL`, and `AGENT_INTERVAL_MS`. The current prototype uses the same
-hardcoded assistant messages as the earlier UI mock, but sends them from the daemon
-on a timer.
+`AUTOMERGE_SYNC_URL`, `AGENT_INTERVAL_MS`, and `AGENT_RIFF_COOLDOWN_MS`. The current
+prototype uses deterministic canned behavior; an LLM can later replace the riff
+selection/generation without changing the collaboration channel.
 
 ## Storage and syncing
 
