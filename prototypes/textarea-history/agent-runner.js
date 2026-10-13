@@ -41,8 +41,10 @@ console.log(`agent-runner subscribing to ${docUrl}`)
 
 let handle = null, stopped = false, paused = false, lastUserCursor = null, lastUserName = 'a collaborator'
 let debounceTimer = null, lastRiffAt = 0, lastRiffedParagraph = '', writing = false, typingOffset = null, abortTyping = false
+let lastNoResponseReason = 'not evaluated yet'
 const paragraphCooldowns = new Map()
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+const noteNoResponse = reason => { lastNoResponseReason = reason }
 
 function sendAssistantStatus(status, summary, thoughts = '', extra = {}) {
   if (!handle) return
@@ -158,25 +160,39 @@ async function generateRiff({ paragraph }) {
 }
 
 function scheduleInspiredResponse() {
-  if (!handle || writing || paused || latestChangeIsAgent()) return
+  if (!handle) { noteNoResponse('no document handle yet'); return }
+  if (writing) { noteNoResponse('already writing'); return }
+  if (paused) { noteNoResponse('assistant muted'); return }
+  if (latestChangeIsAgent()) { noteNoResponse('latest change was from the agent'); return }
   clearTimeout(debounceTimer)
   sendAgentCursor('watching')
   sendAssistantStatus('watching', `Watching ${lastUserName}'s latest paragraph.`)
   debounceTimer = setTimeout(async () => {
-    if (!handle || writing || paused || latestChangeIsAgent() || Date.now() - lastRiffAt < riffCooldownMs) return
+    if (!handle) { noteNoResponse('no document handle after debounce'); return }
+    if (writing) { noteNoResponse('already writing after debounce'); return }
+    if (paused) { noteNoResponse('assistant muted after debounce'); return }
+    if (latestChangeIsAgent()) { noteNoResponse('latest change was from the agent after debounce'); return }
+    const globalRemaining = riffCooldownMs - (Date.now() - lastRiffAt)
+    if (globalRemaining > 0) { noteNoResponse(`global cooldown ${Math.ceil(globalRemaining / 1000)}s remaining`); return }
     const doc = handle.doc(), text = doc.text || '', paragraph = latestParagraph(doc)
-    if (!paragraph || paragraph.value.length < 40 || paragraph.value === lastRiffedParagraph) return
+    if (!paragraph) { noteNoResponse('no suitable paragraph near the user cursor'); return }
+    if (paragraph.value.length < 40) { noteNoResponse(`paragraph too short (${paragraph.value.length}/40 chars)`); return }
+    if (paragraph.value === lastRiffedParagraph) { noteNoResponse('same paragraph was already riffed') ; return }
     const key = paragraphKey(paragraph.value)
-    if (Date.now() - (paragraphCooldowns.get(key) || 0) < riffCooldownMs * 3) return
+    const paragraphRemaining = riffCooldownMs * 3 - (Date.now() - (paragraphCooldowns.get(key) || 0))
+    if (paragraphRemaining > 0) { noteNoResponse(`paragraph cooldown ${Math.ceil(paragraphRemaining / 1000)}s remaining`); return }
     lastRiffedParagraph = paragraph.value
     sendAssistantStatus('thinking', 'Thinking about a short adjacent riff…', 'I will keep it brief and write below the paragraph.')
     sendAgentCursor('writing')
     await sleep(900)
     const current = handle.doc(), currentText = current.text || ''
     const fresh = latestParagraph(current)
-    if (!fresh || fresh.value !== paragraph.value || currentText.slice(fresh.end, fresh.end + 40).includes('Assistant riff:')) return
+    if (!fresh) { noteNoResponse('paragraph disappeared before writing'); return }
+    if (fresh.value !== paragraph.value) { noteNoResponse('paragraph changed while thinking'); return }
+    if (currentText.slice(fresh.end, fresh.end + 40).includes('Assistant riff:')) { noteNoResponse('assistant riff already follows paragraph'); return }
     const riff = await generateRiff({ paragraph: fresh.value, doc: current })
-    if (!riff || riff.length > 600) return
+    if (!riff) { noteNoResponse('riff generator returned no text'); return }
+    if (riff.length > 600) { noteNoResponse(`riff too long (${riff.length}/600 chars)`); return }
     writing = true
     try {
       const insertAt = fresh.end
@@ -251,9 +267,10 @@ repo.networkSubsystem.on('peer-disconnected', peerId => {
 subscribe()
 const timer = setInterval(() => {
   if (!paused) {
-    sendAssistantStatus('watching', lastUserCursor ? `Watching near ${lastUserName}'s cursor.` : 'Watching for document changes.')
+    sendAssistantStatus('watching', lastUserCursor ? `Watching near ${lastUserName}'s cursor.` : 'Watching for document changes.', `Not responding yet: ${lastNoResponseReason}`)
     sendAgentCursor('watching')
   }
+  console.log(`agent response state: ${writing ? 'writing' : paused ? 'muted' : 'waiting'} · ${lastNoResponseReason}`)
 }, intervalMs)
 
 process.on('SIGINT', () => {
